@@ -9,7 +9,6 @@ use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};
 use super::folder_row::FolderRow;
 use super::folder_tree::{Section, Show};
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::lists::list::model::{ListItem, ListStyle};
@@ -18,6 +17,7 @@ use ds::components::lists::section_header::HeaderAction;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::id::account_id_from_uuid;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// One folder, by account and path.

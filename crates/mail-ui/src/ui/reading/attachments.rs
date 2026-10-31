@@ -41,10 +41,10 @@ use super::super::text::{AttachmentRow, Kept};
 use super::fetch::{self, Again};
 use super::thumb::Thumb;
 use crate::ui::common::classed;
-use crate::ui::copy;
 use crate::ui::pick::{Ask, choose};
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::Shell;
+use mail_ui_model::copy;
 
 type Downloads = Signal<HashMap<usize, Download>>;
 
@@ -209,8 +209,8 @@ pub(super) fn Attachments(
                     actions: match failure.again {
                         Again::Offer => Some(rsx! {
                             Button {
-                                label: crate::ui::copy::controls::TRY_AGAIN,
-                                common: Common { aria_label: Some(crate::ui::copy::aria::try_again_to_download(&name)), ..Common::default() },
+                                label: mail_ui_model::copy::controls::TRY_AGAIN,
+                                common: Common { aria_label: Some(mail_ui_model::copy::aria::try_again_to_download(&name)), ..Common::default() },
                                 onclick: super::super::press::on_primary(move || {
                                     let dir = crate::ui::files::save_dir();
                                     again_saver.save(again_part.clone(), dir);

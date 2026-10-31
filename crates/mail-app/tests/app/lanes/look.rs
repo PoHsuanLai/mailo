@@ -15,7 +15,7 @@ use super::seed::account;
 pub fn send() -> String {
     format!(
         ".c-send [*|aria-label=\"{}\"]",
-        mail_ui::ui::copy::controls::SEND
+        mail_ui_model::copy::controls::SEND
     )
 }
 

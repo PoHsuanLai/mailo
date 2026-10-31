@@ -17,7 +17,6 @@ use super::press::{available, on_primary};
 use crate::ui::actions::{chord_of_key, key_of_chord};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::keymap::{self, DEFAULTS, Keymap, Refused};
 use crate::ui::view::{KeySaid, KeyboardPage as Showing, Shell, Shortcut};
 use dioxus::prelude::*;
@@ -29,6 +28,7 @@ use ds::prelude::{
     ShortcutKey as Key, ShortcutKinds, ShortcutRecorded, Tooltip, use_keys,
 };
 use ds::root::common::Common;
+use mail_ui_model::copy;
 
 /// Change the page's state.
 fn edit(mut shell: Signal<Shell>, change: impl FnOnce(&mut Showing)) {

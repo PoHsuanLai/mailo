@@ -4,7 +4,6 @@ use super::{
     DECLINE_KEY, Destination, SEND_KEY, Standing, answer_asked, answer_of, answer_one, answers_now,
     asks, automatic, destination, items, mark_id,
 };
-use crate::settings::{MailSettings, MarkRead, ReadReceipts};
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::fixtures::{click, settle_for};
 use crate::ui::reading::Reader;
@@ -16,6 +15,7 @@ use mail_core::receipt::ReceiptState;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
+use mail_ui_model::settings::{MailSettings, MarkRead, ReadReceipts};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -534,12 +534,12 @@ async fn a_message_that_asks_has_a_mark_in_its_header_and_ignored_sends_nothing(
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains(&mark_id(message)), "no mark: {page}");
     assert!(
-        page.contains(crate::ui::copy::tooltips::ASKS_FOR_A_RECEIPT),
+        page.contains(mail_ui_model::copy::tooltips::ASKS_FOR_A_RECEIPT),
         "{page}"
     );
     assert!(!page.contains("receipt-ask"), "the question line is gone");
     assert!(
-        !page.contains(crate::ui::copy::controls::SEND_RECEIPT),
+        !page.contains(mail_ui_model::copy::controls::SEND_RECEIPT),
         "the answers wait in the popover"
     );
     let _ = seen;
@@ -562,7 +562,7 @@ async fn ask_each_time_sends_when_the_person_says_so() {
         &mut dom,
         &mut seen,
         message,
-        crate::ui::copy::controls::SEND_RECEIPT,
+        mail_ui_model::copy::controls::SEND_RECEIPT,
     )
     .await;
     assert_eq!(submissions(&store), before + 1, "one receipt, queued");
@@ -584,7 +584,7 @@ async fn ask_each_time_declines_and_does_not_ask_again() {
         &mut dom,
         &mut seen,
         message,
-        crate::ui::copy::controls::DONT_SEND_RECEIPT,
+        mail_ui_model::copy::controls::DONT_SEND_RECEIPT,
     )
     .await;
     assert_eq!(submissions(&store), before, "a receipt went");

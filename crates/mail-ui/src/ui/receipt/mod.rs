@@ -19,7 +19,6 @@
 //! is left unread, or is waiting out its delay, has not been read, so no receipt goes until it is
 //! marked read ([`answers_now`]).
 
-use crate::settings::{MailSettings, ReadReceipts};
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
@@ -27,14 +26,15 @@ use mail_client::message::Looks;
 use mail_client::receipt::ReceiptState;
 use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
+use mail_ui_model::settings::{MailSettings, ReadReceipts};
 use std::sync::Mutex;
 
-use super::copy::{controls, status, tooltips};
 use super::press::on_primary;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_ui_model::copy::{controls, status, tooltips};
 
 // One message's standing, with the name of its sender.
 pub(in crate::ui) use mail_client::message::Receipt as Standing;
@@ -366,7 +366,7 @@ pub(in crate::ui) fn give(message: MessageId, answer: ReceiptAnswer) {
         if !kept {
             // The mark stays, so the person can answer again, and the failure is said.
             crate::ui::motion::tell(
-                crate::ui::copy::errors::RECEIPT_NOT_KEPT.to_owned(),
+                mail_ui_model::copy::errors::RECEIPT_NOT_KEPT.to_owned(),
                 crate::ui::motion::Follow::Nothing,
             );
             return;

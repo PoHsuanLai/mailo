@@ -6,7 +6,6 @@
 use super::pictures::{BarAlone, BarAloneProps, held};
 use super::sections::{COMMANDS, PLACES, PLACES_AND_PEOPLE, RECENT};
 use super::*;
-use crate::ui::copy::menus;
 use crate::ui::fixtures::{chord, dispatching, drain_seen, rebuild_into, type_into, work};
 use crate::ui::host::{Ask, Recorder};
 use crate::ui::view::{BarListing, BarOpen};
@@ -14,6 +13,7 @@ use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
 use mail_core::SqliteStore;
 use mail_core::Store;
+use mail_ui_model::copy::menus;
 use std::sync::Arc;
 
 /// The bar alone over the reference fixture, its field, and the fixture kept alive.
@@ -230,7 +230,7 @@ async fn tab_completes_the_lit_row_and_an_operator() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
     bar.typed("settings", |page| {
-        has(page, crate::ui::copy::menus::SETTINGS) && !at_rest(page)
+        has(page, mail_ui_model::copy::menus::SETTINGS) && !at_rest(page)
     })
     .await;
     bar.key("Tab");

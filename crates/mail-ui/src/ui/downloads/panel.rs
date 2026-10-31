@@ -303,7 +303,7 @@ pub(super) fn icon_of(name: &str) -> Icon {
 }
 
 fn open_file(path: PathBuf, onclose: EventHandler<()>) {
-    use crate::ui::copy::errors::FILE_NOT_OPENED;
+    use mail_ui_model::copy::errors::FILE_NOT_OPENED;
     let open = opener().open;
     let said = motion();
     onclose.call(());
@@ -321,7 +321,7 @@ fn reveal_file(path: PathBuf) {
     let said = motion();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || reveal(&path)).await;
-        if let Some(why) = failed(done, crate::ui::copy::errors::FILE_NOT_SHOWN) {
+        if let Some(why) = failed(done, mail_ui_model::copy::errors::FILE_NOT_SHOWN) {
             tell_through(said, why);
         }
     });

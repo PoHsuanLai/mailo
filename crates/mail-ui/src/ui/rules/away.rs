@@ -23,8 +23,8 @@ use super::super::menus::when_words;
 use super::super::press::{available, on_primary};
 use super::server::{configured, reach_away};
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::remedy::plainly;
+use mail_ui_model::copy;
 
 /// Whether the reply is wanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

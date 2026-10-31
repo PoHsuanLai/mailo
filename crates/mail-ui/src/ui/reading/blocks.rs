@@ -40,7 +40,7 @@ pub(super) fn Sandbox(
 ) -> Element {
     // The reader's text size (`reading.text_zoom`), read here so a change draws the frame again;
     // a frame with no window around it (a test's) is at its own size.
-    let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
+    let settings = use_hook(try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>);
     let text = settings.map_or(1.0, |settings| settings.read().reading.text_zoom.factor());
     let height = use_signal(|| None::<f32>);
     let selections = use_hook(try_consume_context::<super::selection::Selections>);

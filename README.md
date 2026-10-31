@@ -122,7 +122,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace          # or cargo test --workspace; no network needed
 ./scripts/check-boundary.sh            # the sans-I/O boundary
-./scripts/check-copy.sh                # the window's words live in crates/mail-ui/src/ui/copy
+./scripts/check-copy.sh                # the window's words live in crates/mail-ui-model/src/copy
 cargo deny check licenses
 ```
 

@@ -11,7 +11,6 @@
 use super::super::menu::{MenuKey, anchor_for, menu_key};
 use super::super::motion::{Follow, Restore, tell};
 use super::super::ops::newest;
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
@@ -24,6 +23,7 @@ use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_client::Client;
 use mail_domain::*;
+use mail_ui_model::copy;
 
 /// What pressing Return with `typed` in the field comes to: the addresses, or why there are none.
 pub(super) fn recipients(typed: &str) -> Result<Vec<Address>, String> {

@@ -78,9 +78,9 @@ pub(in crate::ui) use spell::use_test_dictionaries;
 pub(in crate::ui) use templates::{every as every_template, template_rows};
 
 use super::press::on_primary;
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_client::password::Password;
+use mail_ui_model::copy;
 
 /// The fold after Send: quire's timer for the fade, and what happens once it has
 /// settled, which is that the page is taken away. Made by the page, so it belongs to it.
@@ -328,7 +328,7 @@ fn PageView(initial: Page, shell: Signal<Shell>) -> Element {
                     div { class: "c-head",
                         div { class: "head-row",
                             div { class: "bar-tools",
-                                Attach { page, label: crate::ui::copy::controls::ATTACH, bezel: Bezel::Toolbar }
+                                Attach { page, label: mail_ui_model::copy::controls::ATTACH, bezel: Bezel::Toolbar }
                                 MoreButton {
                                     page,
                                     on_keep: move |()| desk::park(desk, page, shell),
@@ -390,7 +390,7 @@ fn PageView(initial: Page, shell: Signal<Shell>) -> Element {
                 sizing::TooLarge { page, on_anyway: move |()| send(Anyway::Yes) }
                 SealWarn { bar: seal_bar, on_act: on_seal }
                 if reply {
-                    Attach { page, label: crate::ui::copy::controls::ATTACH, bezel: Bezel::Toolbar }
+                    Attach { page, label: mail_ui_model::copy::controls::ATTACH, bezel: Bezel::Toolbar }
                     MoreButton {
                         page,
                         on_keep: move |()| desk::park(desk, page, shell),
@@ -627,7 +627,7 @@ fn forget(mut shell: Signal<Shell>, desk: Desk, draft: DraftId, undo: mail_clien
     crate::ui::motion::record(
         shell,
         vec![undo],
-        crate::ui::copy::toasts::DRAFT_DELETED.to_owned(),
+        mail_ui_model::copy::toasts::DRAFT_DELETED.to_owned(),
     );
 }
 

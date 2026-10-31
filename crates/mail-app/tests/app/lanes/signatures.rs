@@ -2,7 +2,7 @@
 //! the next new message in the main window, open all along, which offers it in its Signature row.
 
 use mail_core::Store;
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 
 use super::drive::Key;
 use super::hands::{click, type_text, until};

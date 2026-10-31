@@ -5,7 +5,6 @@ use super::direct::{
     AddPick, DirectSignIns, Entry, SignInDirectly, Signing, add_menu, entry, entry_for_plan,
     offered_redirects, picked, redirects, told,
 };
-use super::provider::offered_specs;
 use super::{AddAccountWindows, Ask, Join, OpenAddAccount};
 use crate::ui::fixtures::settle_quiet_seen;
 use crate::ui::fixtures::{dispatching, empty, rebuild_into};
@@ -16,6 +15,7 @@ use ds::prelude::MenuItem;
 use mail_core::account::{Mode, SignInError};
 use mail_core::{ClientRegistry, Environment};
 use mail_domain::AuthPlan;
+use mail_ui_model::add_account::provider::offered_specs;
 use porter_provider::Issuer;
 use std::sync::{Arc, Mutex};
 

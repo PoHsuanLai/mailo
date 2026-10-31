@@ -80,14 +80,14 @@ async fn three_accounts_show_an_all_tile_and_the_microsoft_tile_filters() {
     assert!(
         page.contains(&format!(
             "aria-label=\"{}\"",
-            crate::ui::copy::aria::ADD_ACCOUNT
+            mail_ui_model::copy::aria::ADD_ACCOUNT
         )),
         "no +:\n{page}"
     );
 
     let tile = seen.one_in(
         "aria-label",
-        crate::ui::copy::aria::ACCOUNTS_IN_SPACE,
+        mail_ui_model::copy::aria::ACCOUNTS_IN_SPACE,
         "p.lai@corp.example",
     );
     let _ = super::fixtures::click(&mut dom, tile);
@@ -131,14 +131,14 @@ fn favourites_appear_once_a_conversation_is_pinned() {
     let (store, _dir) = seeded();
     let page = page_of(store.clone(), None);
     assert!(
-        !page.contains(crate::ui::copy::headers::FAVOURITES),
+        !page.contains(mail_ui_model::copy::headers::FAVOURITES),
         "Favourites with nothing pinned:\n{page}"
     );
     let hi = super::fixtures::thread_like(&store, "hi");
     assert!(mail_core::snooze::pin(&store, hi, chrono::Utc::now()).unwrap_or(false));
     let page = page_of(store.clone(), None);
     assert!(
-        page.contains(crate::ui::copy::headers::FAVOURITES),
+        page.contains(mail_ui_model::copy::headers::FAVOURITES),
         "no Favourites with a pinned conversation:\n{page}"
     );
     let subject = mail_core::Store::thread(store.as_ref(), hi)

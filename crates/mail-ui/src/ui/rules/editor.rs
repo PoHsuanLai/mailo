@@ -25,9 +25,9 @@ use super::when::Joined;
 use super::work::{self, Draft};
 use super::{Said, back};
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_domain::RuleId;
+use mail_ui_model::copy;
 
 /// Which menu the "Add an action" button has open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

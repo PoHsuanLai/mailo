@@ -5,7 +5,7 @@
 //! and [`query_of`] writes rows back, any-of as `a OR b`. A condition the rows cannot hold
 //! (`in:sent`, a word a rule does not know, all-of and any-of mixed) is edited as text.
 
-use crate::ui::copy::fields;
+use mail_ui_model::copy::fields;
 
 /// What a condition looks at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

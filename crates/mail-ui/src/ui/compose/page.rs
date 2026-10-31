@@ -4,13 +4,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::settings::MessageFormat;
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
 use mail_client::compose::PictureSize;
 use mail_client::when::Clock;
 use mail_domain::{
     Address, DeliveryReport, Draft, DraftId, IdentityId, Priority, ReceiptRequest, SignatureId,
 };
+use mail_ui_model::settings::MessageFormat;
 use porter_core::AccountId;
 
 use mail_client::compose::doc_of;

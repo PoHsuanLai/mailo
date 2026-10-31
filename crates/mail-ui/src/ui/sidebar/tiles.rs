@@ -10,9 +10,8 @@
 
 use super::join::{self, Plus};
 use super::tile_menu::TileMenu;
-use crate::ui::copy;
 use crate::ui::data::account_rows;
-use crate::ui::fetching::{Fetching, StatusLine, Tone};
+use crate::ui::fetching::Fetching;
 use crate::ui::menu::Floating;
 use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
 use crate::ui::reauth::Reauth;
@@ -29,6 +28,8 @@ use mail_client::profile::ProfileId;
 use mail_client::provider::{Provider, provider};
 use mail_client::query::{Account, Counted, Counts};
 use mail_domain::{Filter, ReadState};
+use mail_ui_model::copy;
+use mail_ui_model::fetching::status::{StatusLine, Tone};
 use porter_core::AccountId;
 
 /// One account's tile, as the client has it.
@@ -291,9 +292,9 @@ fn bring_in(handle: Handle, account: AccountId) {
 #[cfg(test)]
 mod tests {
     use super::{all_status, status_of};
-    use crate::ui::copy;
-    use crate::ui::fetching::{StatusLine, Tone};
     use ds::components::app::pin_tile::PinStatus;
+    use mail_ui_model::copy;
+    use mail_ui_model::fetching::status::{StatusLine, Tone};
 
     fn line(text: &str, tone: Tone) -> StatusLine {
         StatusLine {

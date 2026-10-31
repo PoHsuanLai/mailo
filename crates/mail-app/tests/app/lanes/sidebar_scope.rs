@@ -13,8 +13,8 @@ use mail_core::{Arrival, SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_ui::ui::appearance::WindowDirs;
-use mail_ui::ui::copy;
 use mail_ui::ui::space::{self, Mail};
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 use super::drive::Drive;

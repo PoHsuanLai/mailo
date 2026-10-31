@@ -14,9 +14,9 @@ use ds_harness::Input;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{AccountCaps, ArchiveMeans, Folder, Holds, ProtoOp, Subscription, presets};
 use mail_ui::ui::appearance::WindowDirs;
-use mail_ui::ui::copy;
 use mail_ui::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
 use mail_ui::ui::space::{self, Mail};
+use mail_ui_model::copy;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};

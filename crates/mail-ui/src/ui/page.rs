@@ -11,7 +11,6 @@ use std::collections::BTreeMap;
 
 use super::menu::anchor_at;
 use super::press::on_primary;
-use crate::ui::copy;
 use crate::ui::fetching::use_status;
 use crate::ui::view::{PageGroup, PageMenu, PageParts, RowPart, Shell, SortKept};
 use chrono::{DateTime, TimeZone, Utc};
@@ -21,6 +20,7 @@ use ds::host::measure::MountedRef;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{Property, Sort, SortDir, ThreadSummary, Threading};
+use mail_ui_model::copy;
 use std::borrow::Borrow;
 
 /// One band of the loaded page: its rows, each a conversation's summary or something that holds
@@ -241,7 +241,7 @@ pub(super) fn more_items(
 
 /// What the list menu changed, kept in `settings.toml` so the next window opens the same way.
 /// Shown at once whatever the write does; a window with nowhere to write keeps it until it closes.
-fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
+fn kept(edit: impl FnOnce(&mut mail_ui_model::settings::WindowSettings)) {
     if let Err(why) = crate::ui::prefs::change(|settings| edit(&mut settings.window)) {
         log::warn!("the list's look was not kept: {why}");
     }
@@ -269,7 +269,7 @@ pub(super) fn sort_list(mut shell: Signal<Shell>, sort: Sort) {
                     settings
                         .window
                         .sorts
-                        .insert(key, crate::settings::ListOrder(sort));
+                        .insert(key, mail_ui_model::settings::ListOrder(sort));
                 }))
             }
         };
@@ -444,10 +444,10 @@ mod tests {
                 PageGroup::None,
                 None,
                 &[
-                    crate::ui::copy::menus::GROUP_BY_DATE,
+                    mail_ui_model::copy::menus::GROUP_BY_DATE,
                     "-",
-                    crate::ui::copy::menus::HIDE_SNIPPETS,
-                    crate::ui::copy::menus::HIDE_LABELS,
+                    mail_ui_model::copy::menus::HIDE_SNIPPETS,
+                    mail_ui_model::copy::menus::HIDE_LABELS,
                 ],
             ),
             (
@@ -456,30 +456,30 @@ mod tests {
                 &[
                     "✓Group by Date",
                     "-",
-                    crate::ui::copy::menus::HIDE_SNIPPETS,
-                    crate::ui::copy::menus::HIDE_LABELS,
+                    mail_ui_model::copy::menus::HIDE_SNIPPETS,
+                    mail_ui_model::copy::menus::HIDE_LABELS,
                 ],
             ),
             (
                 PageGroup::None,
                 Some(""),
                 &[
-                    crate::ui::copy::menus::GROUP_BY_DATE,
+                    mail_ui_model::copy::menus::GROUP_BY_DATE,
                     "-",
-                    crate::ui::copy::menus::HIDE_SNIPPETS,
-                    crate::ui::copy::menus::HIDE_LABELS,
+                    mail_ui_model::copy::menus::HIDE_SNIPPETS,
+                    mail_ui_model::copy::menus::HIDE_LABELS,
                     "-",
-                    crate::ui::copy::menus::SYNC_NOW,
+                    mail_ui_model::copy::menus::SYNC_NOW,
                 ],
             ),
             (
                 PageGroup::None,
                 Some("Not updated since 14:05"),
                 &[
-                    crate::ui::copy::menus::GROUP_BY_DATE,
+                    mail_ui_model::copy::menus::GROUP_BY_DATE,
                     "-",
-                    crate::ui::copy::menus::HIDE_SNIPPETS,
-                    crate::ui::copy::menus::HIDE_LABELS,
+                    mail_ui_model::copy::menus::HIDE_SNIPPETS,
+                    mail_ui_model::copy::menus::HIDE_LABELS,
                     "-",
                     "Sync Now / Not updated since 14:05",
                 ],
@@ -501,7 +501,7 @@ mod tests {
             (Threading::Threaded, "✓Organise by Conversation"),
             (
                 Threading::Single,
-                crate::ui::copy::menus::ORGANISE_BY_CONVERSATION,
+                mail_ui_model::copy::menus::ORGANISE_BY_CONVERSATION,
             ),
         ] {
             let rows = read(&more_items(
@@ -513,7 +513,7 @@ mod tests {
             ));
             assert_eq!(
                 rows[..3],
-                [crate::ui::copy::menus::GROUP_BY_DATE, want, "-"],
+                [mail_ui_model::copy::menus::GROUP_BY_DATE, want, "-"],
                 "{threading:?}"
             );
         }
@@ -526,8 +526,8 @@ mod tests {
         assert_eq!(
             read(&rows)[2..],
             [
-                crate::ui::copy::menus::SHOW_SNIPPETS,
-                crate::ui::copy::menus::SHOW_LABELS
+                mail_ui_model::copy::menus::SHOW_SNIPPETS,
+                mail_ui_model::copy::menus::SHOW_LABELS
             ]
         );
         assert!(rows[2..].iter().all(|row| matches!(
@@ -568,7 +568,7 @@ mod tests {
         for (sort, want) in cases {
             let rows = read(&more_items(PageGroup::None, Some(sort), None, parts, None));
             assert_eq!(rows[0], want, "{sort:?}");
-            assert_eq!(rows[1], crate::ui::copy::menus::GROUP_BY_DATE);
+            assert_eq!(rows[1], mail_ui_model::copy::menus::GROUP_BY_DATE);
         }
     }
 
@@ -594,10 +594,10 @@ mod tests {
                 ],
                 PageGroup::Date,
                 &[
-                    Some(crate::ui::copy::headers::TODAY),
-                    Some(crate::ui::copy::headers::YESTERDAY),
-                    Some(crate::ui::copy::headers::THIS_WEEK),
-                    Some(crate::ui::copy::headers::OLDER),
+                    Some(mail_ui_model::copy::headers::TODAY),
+                    Some(mail_ui_model::copy::headers::YESTERDAY),
+                    Some(mail_ui_model::copy::headers::THIS_WEEK),
+                    Some(mail_ui_model::copy::headers::OLDER),
                 ],
             ),
             (

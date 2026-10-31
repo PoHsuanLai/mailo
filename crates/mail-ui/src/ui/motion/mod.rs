@@ -19,7 +19,6 @@ pub(super) use drag::Ghost;
 pub(super) use toast::Toast;
 
 use super::ops::resolve;
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
@@ -28,6 +27,7 @@ use mail_client::act::{Keep, TookBack};
 use mail_client::undo::{Undo, UndoHandle};
 use mail_client::{Acted, Destroy, Perform, TakeBack, Ticket};
 use mail_domain::*;
+use mail_ui_model::copy;
 
 /// What the toast says, and which op it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,7 +90,7 @@ impl Restore {
 
 /// What Undo says when the client would not take back what it deleted.
 fn not_put_back(why: impl std::fmt::Display) -> String {
-    crate::ui::remedy::plainly(crate::ui::copy::errors::NOT_KEPT_HERE, why)
+    crate::ui::remedy::plainly(mail_ui_model::copy::errors::NOT_KEPT_HERE, why)
 }
 
 /// quire's toast host, and what its buttons do: made by a component that lives as long as the
@@ -347,8 +347,8 @@ fn target_of(shell: Signal<Shell>, thread: ThreadId) -> Target {
 /// Whether Delete means "deletes now" in this window's settings. A window with none (a test's)
 /// moves to Trash and no more.
 fn deletes_now() -> bool {
-    try_consume_context::<Signal<crate::settings::MailSettings>>().is_some_and(|settings| {
-        settings.peek().mailboxes.delete == crate::settings::DeleteMeans::Now
+    try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>().is_some_and(|settings| {
+        settings.peek().mailboxes.delete == mail_ui_model::settings::DeleteMeans::Now
     })
 }
 
@@ -685,7 +685,7 @@ impl Motion {
                 }));
                 toasts.hub.push_action(
                     text,
-                    ToastAction::new(crate::ui::copy::controls::UNDO),
+                    ToastAction::new(mail_ui_model::copy::controls::UNDO),
                     toasts.on_restore,
                 );
             }
@@ -698,7 +698,7 @@ impl Motion {
                 }));
                 toasts.hub.push_action(
                     text,
-                    ToastAction::new(crate::ui::copy::controls::UNDO),
+                    ToastAction::new(mail_ui_model::copy::controls::UNDO),
                     toasts.on_unblock,
                 );
             }

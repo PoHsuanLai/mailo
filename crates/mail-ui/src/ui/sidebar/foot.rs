@@ -8,11 +8,11 @@
 
 use crate::ui::actions::tip_standard;
 use crate::ui::command::{Acts, Command, Settings, Sidebar, TidyUp, perform};
-use crate::ui::copy;
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_ui_model::copy;
 
 /// The menu's rows: Tidy Up…, Settings and the sidebar's toggle, named by whether the sidebar is pinned
 /// open (`sidebar`).

@@ -6,8 +6,8 @@
 use ds_harness::Harness;
 use mail_core::Store;
 use mail_domain::ReadState;
-use mail_ui::settings::{MailSettings, MarkRead, MarkReadDelay, TextZoom};
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
+use mail_ui_model::settings::{MailSettings, MarkRead, MarkReadDelay, TextZoom};
 
 use super::drive::{Key, PRIMARY};
 use super::look::conversation;
@@ -51,8 +51,8 @@ fn letters(store: &mail_core::SqliteStore) {
 /// The window over the seeded inbox and [`letters`], its settings first changed by `edit`.
 fn open(edit: impl FnOnce(&mut MailSettings) + 'static) -> Window {
     Window::open_with(chrono::Utc::now(), letters, move |dir, contexts| {
-        let root = mail_ui::settings::root_for(&dir.join("config"));
-        mail_ui::settings::change(&root, edit).expect("the settings are written");
+        let root = mail_ui_model::settings::root_for(&dir.join("config"));
+        mail_ui_model::settings::change(&root, edit).expect("the settings are written");
         contexts
     })
 }
@@ -60,9 +60,9 @@ fn open(edit: impl FnOnce(&mut MailSettings) + 'static) -> Window {
 /// Wait for the text size to be in the settings file: it is written a moment after the last
 /// press, off the drawing thread.
 fn kept(window: &mut Window, zoom: u16) {
-    let root = mail_ui::settings::root_for(&window.dirs().config);
+    let root = mail_ui_model::settings::root_for(&window.dirs().config);
     window.until(&format!("text size {zoom} is written"), move |_| {
-        mail_ui::settings::load(&root).reading.text_zoom == TextZoom(zoom)
+        mail_ui_model::settings::load(&root).reading.text_zoom == TextZoom(zoom)
     });
 }
 

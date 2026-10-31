@@ -173,7 +173,7 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = cert_short(mine.fingerprint);
 
-    let asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
+    let asked = pick(&mut dom, &seen, &id, mail_ui_model::copy::menus::DELETE).await;
     assert!(markup(&dom).contains("private key is deleted too"));
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_some());
     assert!(holds(&secrets, &mine));
@@ -182,7 +182,7 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let _ = drain_seen(&mut dom);
     assert!(!markup(&dom).contains("private key is deleted too"));
 
-    let asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
+    let asked = pick(&mut dom, &seen, &id, mail_ui_model::copy::menus::DELETE).await;
     let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_none());
@@ -209,11 +209,11 @@ async fn a_certificate_is_trusted_and_the_trust_taken_back() {
     let id = cert_short(root);
     let trust = |store: &SqliteStore| store.smime_cert(root).unwrap().unwrap().trust;
 
-    let mut trusted = pick(&mut dom, &seen, &id, crate::ui::copy::menus::TRUST).await;
+    let mut trusted = pick(&mut dom, &seen, &id, mail_ui_model::copy::menus::TRUST).await;
     settle(&mut dom, &mut trusted).await;
     assert_eq!(trust(&store), KeyTrust::Verified);
     assert!(markup(&dom).contains("trusted by you"));
-    let mut untrusted = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DONT_TRUST).await;
+    let mut untrusted = pick(&mut dom, &seen, &id, mail_ui_model::copy::menus::DONT_TRUST).await;
     settle(&mut dom, &mut untrusted).await;
     assert_eq!(trust(&store), KeyTrust::Unverified);
 }
@@ -307,7 +307,13 @@ pub(in crate::ui) async fn drawn_states() -> String {
     let mut page = markup(&dom);
     assert!(page.contains("keys-ask"), "{page}");
     let root = cert_short(pki().root.cert.fingerprint());
-    let mut untrusted = pick(&mut dom, &seen, &root, crate::ui::copy::menus::DONT_TRUST).await;
+    let mut untrusted = pick(
+        &mut dom,
+        &seen,
+        &root,
+        mail_ui_model::copy::menus::DONT_TRUST,
+    )
+    .await;
     settle(&mut dom, &mut untrusted).await;
     page += &markup(&dom);
     // What a change came to is said in quire's banner.
@@ -316,7 +322,7 @@ pub(in crate::ui) async fn drawn_states() -> String {
         &mut dom,
         &seen,
         &cert_short(mine.fingerprint),
-        crate::ui::copy::menus::DELETE,
+        mail_ui_model::copy::menus::DELETE,
     )
     .await;
     // The question is quire's alert, drawn in the root's overlay the render after it asks.

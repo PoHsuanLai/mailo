@@ -9,7 +9,6 @@
 //! writes all of it.
 
 use crate::ui::common::in_card;
-use crate::ui::copy;
 use crate::ui::press::{SheetClose, on_primary};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -20,6 +19,7 @@ use mail_client::Client;
 use mail_client::export::RawHead;
 use mail_client::prelude::CoreError;
 use mail_domain::{MessageId, ThreadId, human_size};
+use mail_ui_model::copy;
 
 /// Which of a message's raw text a sheet shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

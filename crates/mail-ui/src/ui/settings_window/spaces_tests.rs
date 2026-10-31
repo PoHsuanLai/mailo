@@ -3,13 +3,13 @@
 //! a Space into a new place is a lane (`tests/app/lanes/spaces.rs`): it takes a real pointer.
 
 use super::super::tests::opened_on;
-use crate::ui::copy;
 use crate::ui::fixtures::{Work, click, drain_seen, type_into, work};
 use crate::ui::space::{Spaces, stored};
 use crate::ui::view::PageId;
 use dioxus::dioxus_core::VirtualDom;
 use ds::style::appearance::theme::Theme;
 use ds::style::space::presets::PRESETS;
+use mail_ui_model::copy;
 
 /// The Spaces as the file holds them now.
 fn on_disk(built: &Work) -> Spaces {

@@ -122,7 +122,7 @@ pub struct Seams {
 
 impl Seams {
     /// The network, the keyring and the program's OAuth clients, `clients`.
-    pub(in crate::ui) fn real(client: Client, clients: OAuthClients) -> Seams {
+    pub fn real(client: Client, clients: OAuthClients) -> Seams {
         let environment = client.net().environment();
         let has = (environment.clone(), clients.clone());
         let signs_in = (client.clone(), clients.clone());
@@ -238,16 +238,12 @@ impl Seams {
 
 /// Whether an OAuth client for `issuer` is at hand: one typed in the environment, or one of
 /// `clients` (the program's: this installation's files).
-pub(super) fn has_client(
-    issuer: Issuer,
-    environment: &Environment,
-    clients: &OAuthClients,
-) -> bool {
+pub fn has_client(issuer: Issuer, environment: &Environment, clients: &OAuthClients) -> bool {
     mail_client::account::oauth_client(issuer, environment, &clients.saved()).is_some()
 }
 
 /// The provider files of [`OFFERED`], in its order.
-pub(super) fn offered_specs() -> Vec<ProviderSpec> {
+pub fn offered_specs() -> Vec<ProviderSpec> {
     let known = mail_client::discover::providers::set();
     OFFERED
         .iter()
@@ -261,7 +257,7 @@ pub(super) fn offered_specs() -> Vec<ProviderSpec> {
 /// opened it (the Space the account joins, the list that draws it). And what the last failed add
 /// was told, for the window to say under the sheet's sentence.
 #[derive(Debug, Clone, Default)]
-pub(in crate::ui) struct Added {
+pub struct Added {
     accounts: Arc<Mutex<Vec<String>>>,
     said: Arc<Mutex<Option<String>>>,
 }
@@ -275,7 +271,7 @@ impl Added {
     }
 
     /// The address of the account added last, once.
-    pub(in crate::ui) fn take(&self) -> Option<String> {
+    pub fn take(&self) -> Option<String> {
         self.accounts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -291,7 +287,7 @@ impl Added {
     }
 
     /// What the last failed add was told, if it was told anything.
-    pub(in crate::ui) fn said(&self) -> Option<String> {
+    pub fn said(&self) -> Option<String> {
         self.said
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -300,8 +296,8 @@ impl Added {
 }
 
 /// One way of signing mail in, as a provider file declares it.
-#[derive(Clone)]
-pub(in crate::ui) struct MailProvider {
+#[derive(Clone, Debug)]
+pub struct MailProvider {
     spec: ProviderSpec,
     seams: Seams,
     added: Added,
@@ -310,11 +306,7 @@ pub(in crate::ui) struct MailProvider {
 
 /// Every provider mailo offers, for `seams`; the address the person is signing in again with, if
 /// any, is already in the form.
-pub(in crate::ui) fn offered(
-    seams: &Seams,
-    added: &Added,
-    prefill: Option<String>,
-) -> Vec<MailProvider> {
+pub fn offered(seams: &Seams, added: &Added, prefill: Option<String>) -> Vec<MailProvider> {
     offered_specs()
         .into_iter()
         .map(|spec| MailProvider {
@@ -328,7 +320,7 @@ pub(in crate::ui) fn offered(
 
 /// The session of a mail account in porter's sense: there is none, mailo opens its own.
 #[derive(Debug)]
-pub(in crate::ui) enum NoSession {}
+pub enum NoSession {}
 
 impl ProviderSession for NoSession {
     async fn access_token(
@@ -515,7 +507,7 @@ fn elsewhere(picked: &ProviderSpec, address: &str) -> Option<String> {
     }
     let other = mail_client::discover::claimed_by(&address.trim().to_lowercase())?;
     (other.id != picked.id).then(|| {
-        crate::ui::copy::errors::address_at_other_provider(
+        crate::copy::errors::address_at_other_provider(
             address.trim(),
             &other.label,
             &picked.label,
@@ -635,7 +627,7 @@ impl std::fmt::Debug for State {
 }
 
 /// The sign-in conversation of one provider.
-pub(in crate::ui) struct MailSignIn {
+pub struct MailSignIn {
     spec: ProviderSpec,
     seams: Seams,
     added: Added,

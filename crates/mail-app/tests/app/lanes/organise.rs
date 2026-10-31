@@ -4,8 +4,8 @@
 //! it back on lists the conversation once again.
 
 use mail_core::Store as _;
-use mail_ui::settings::{load, root_for};
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
+use mail_ui_model::settings::{load, root_for};
 
 use super::drive::Key;
 use super::window::{Window, account, deliver, hours_ago};

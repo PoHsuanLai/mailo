@@ -98,7 +98,7 @@ impl Provider {
                 }
             }
         }
-        let said = mail_ui::ui::copy::toasts::performed_on(&op, done.len(), &Local, self.hours);
+        let said = mail_ui_model::copy::toasts::performed_on(&op, done.len(), &Local, self.hours);
         let handle = self
             .stack
             .lock()

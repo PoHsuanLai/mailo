@@ -10,7 +10,6 @@
 
 use crate::ui::add_account::{AddPick, Join, add_menu, offered_redirects, picked};
 use crate::ui::appearance::WindowDirs;
-use crate::ui::copy;
 use crate::ui::data::{AccountRow, use_account_rows};
 use crate::ui::space::{Handle, Mail, Member, Recall, SpaceId, with_member};
 use crate::ui::today::Today;
@@ -19,6 +18,7 @@ use ds::components::app::spaces::SpaceMenu;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
 use ds::prelude::{Availability, Check, Icon, MenuImage};
 use mail_client::profile::ProfileId;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// Every account there is, in order, and how the window names it.

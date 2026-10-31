@@ -7,9 +7,9 @@
 use dioxus::prelude::*;
 
 use super::book;
-use crate::ui::copy;
 use crate::ui::motion::{Follow, tell};
 use crate::ui::pick::{Ask, choose, file_name};
+use mail_ui_model::copy;
 
 /// Ask for vCard files and read each into the book, in order, saying what the last one did.
 pub(in crate::ui) fn import_cards() {

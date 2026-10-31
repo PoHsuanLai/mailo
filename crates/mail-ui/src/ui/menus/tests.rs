@@ -118,7 +118,7 @@ mod naming_a_conversation {
             .into_iter()
             .next()
             .expect("a row");
-        crate::ui::fixtures::row_action(&mut dom, &seen, &first, crate::ui::copy::menus::LABEL)
+        crate::ui::fixtures::row_action(&mut dom, &seen, &first, mail_ui_model::copy::menus::LABEL)
             .await;
         let page = dioxus_ssr::render(&dom);
         assert!(
@@ -134,10 +134,10 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
     let zone = chrono::Utc;
     let items = super::snooze_items(now, &zone, Clock::H24);
     let expect = [
-        ("later", crate::ui::copy::menus::LATER_TODAY),
-        ("tomorrow", crate::ui::copy::menus::TOMORROW),
-        ("weekend", crate::ui::copy::menus::THIS_WEEKEND),
-        ("monday", crate::ui::copy::menus::NEXT_WEEK),
+        ("later", mail_ui_model::copy::menus::LATER_TODAY),
+        ("tomorrow", mail_ui_model::copy::menus::TOMORROW),
+        ("weekend", mail_ui_model::copy::menus::THIS_WEEKEND),
+        ("monday", mail_ui_model::copy::menus::NEXT_WEEK),
     ];
     // The four times, then Choose Time…, and not a glyph among them.
     assert_eq!(items.len(), expect.len() + 1);
@@ -145,7 +145,7 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
         items
             .last()
             .map(|item| (item.key.as_str(), item.name.as_str())),
-        Some((super::CHOOSE, crate::ui::copy::menus::CHOOSE_TIME))
+        Some((super::CHOOSE, mail_ui_model::copy::menus::CHOOSE_TIME))
     );
     assert!(
         items
@@ -199,7 +199,7 @@ fn a_typed_time_is_read_as_snooze_reads_it_and_must_be_to_come() {
     );
     assert_eq!(
         super::chosen_time("  ", now, &zone, Clock::H24),
-        Err(crate::ui::copy::fields::TYPE_A_TIME.to_owned())
+        Err(mail_ui_model::copy::fields::TYPE_A_TIME.to_owned())
     );
     let gone = super::chosen_time("today 09:00", now, &zone, Clock::H24).unwrap_err();
     assert!(gone.contains("has passed"), "{gone}");

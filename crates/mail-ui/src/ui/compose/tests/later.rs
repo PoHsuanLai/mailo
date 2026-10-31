@@ -172,7 +172,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
     // The button still says Send: the Sends row says when. It is the same element it was.
     let painted = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert_eq!(
@@ -270,7 +270,7 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     });
     let sent = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     // The send is queued through the client, a moment after the click.
     let sent = sent.merge(crate::ui::fixtures::settle_quiet_seen(&mut window.dom).await);
@@ -295,7 +295,7 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     pick_named(
         &mut window.dom,
         &opened,
-        crate::ui::copy::menus::CANCEL_SENDING,
+        mail_ui_model::copy::menus::CANCEL_SENDING,
     )
     .await;
     let markup = window.render();
@@ -361,7 +361,7 @@ async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
     scheduled_page(&mut window, at);
     let sent = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     // The fold, settled: the page is gone, as its timer takes it away.
     let shell = window.shell;
@@ -378,7 +378,7 @@ async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
         markup.contains("data-held=\"Friday\""),
         "not opened held:\n{markup}"
     );
-    let leaves = crate::ui::copy::status::leaves(&crate::ui::menus::when_words(
+    let leaves = mail_ui_model::copy::status::leaves(&crate::ui::menus::when_words(
         at,
         Utc::now(),
         &chrono::Local,
@@ -400,7 +400,7 @@ async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
 
     click(
         &mut window.dom,
-        opened.one("aria-label", crate::ui::copy::menus::CANCEL_SENDING),
+        opened.one("aria-label", mail_ui_model::copy::menus::CANCEL_SENDING),
     );
     let markup = window.render();
     assert_eq!(
@@ -455,7 +455,7 @@ async fn cancel_of_a_send_already_on_the_wire_says_so_and_changes_nothing() {
     scheduled_page(&mut window, at);
     let painted = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let far = at + chrono::TimeDelta::days(1);
     let queued = outbox(&store, far);

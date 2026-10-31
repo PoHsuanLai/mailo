@@ -459,7 +459,7 @@ fn imported_mail_goes_to_local_folders_or_an_imap_accounts_folder() {
 fn only_a_thunderbird_profile_is_said_to_bring_only_what_was_kept_offline() {
     let dir = PathBuf::from("profile");
     let thunderbird = work::described(&Source::new(&Thunderbird, dir.clone()), 3);
-    let offline = crate::ui::copy::status::source_note(Thunderbird.slug()).unwrap();
+    let offline = mail_ui_model::copy::status::source_note(Thunderbird.slug()).unwrap();
     assert!(thunderbird.contains(offline), "{thunderbird}");
     for other in [
         Source::new(&AppleMail, dir.clone()),
@@ -477,10 +477,10 @@ fn only_a_thunderbird_profile_is_said_to_bring_only_what_was_kept_offline() {
 fn every_format_the_sheets_offer_has_its_own_words() {
     let kinds: Vec<_> = mail_core::formats::ARCHIVES
         .iter()
-        .map(|format| crate::ui::copy::status::source_kind(format.slug()))
+        .map(|format| mail_ui_model::copy::status::source_kind(format.slug()))
         .collect();
     let makes: Vec<_> = writers()
-        .map(|format| crate::ui::copy::status::export_makes(format.slug()))
+        .map(|format| mail_ui_model::copy::status::export_makes(format.slug()))
         .collect();
     for words in [&kinds, &makes] {
         assert!(words.iter().all(|said| !said.is_empty()), "{words:?}");

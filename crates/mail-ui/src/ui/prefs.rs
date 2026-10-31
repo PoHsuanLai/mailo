@@ -1,4 +1,4 @@
-//! The window's half of `crate::settings`: `mailo/settings.toml` in one signal, which everything
+//! The window's half of `mail_ui_model::settings`: `mailo/settings.toml` in one signal, which everything
 //! that follows a setting reads, and the one way the window changes it.
 //!
 //! The launched window loads it and watches the file (`launch::ShellRoot`), so a change made in
@@ -6,10 +6,10 @@
 //! loads it from the config directory it was handed, or keeps the defaults in memory when it was
 //! handed none.
 
-use crate::settings::{self, MailSettings};
 use crate::ui::appearance::WindowDirs;
 use dioxus::prelude::*;
 use ds_settings::ConfigRoot;
+use mail_ui_model::settings::{self, MailSettings};
 
 /// Where the window's settings are written: `None` keeps them in memory only.
 #[derive(Debug, Clone, PartialEq)]
@@ -93,7 +93,7 @@ pub(in crate::ui) fn use_window_settings() {
             .privacy
             .route(answered.as_ref().and_then(|key| key.as_deref()))
             .err()
-            .filter(|problem| known || *problem != crate::settings::RouteProblem::RelayKey)
+            .filter(|problem| known || *problem != mail_ui_model::settings::RouteProblem::RelayKey)
     });
     use_context_provider(|| problem);
     // A `settings.toml` whose privacy settings cannot be read is the defaults, which would fetch
@@ -174,7 +174,7 @@ pub(in crate::ui) fn reread() {
 /// to write it, and shown at once either way. A write that fails changes nothing on screen.
 pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), String> {
     let Some(mut values) = try_consume_context::<Signal<MailSettings>>() else {
-        return Err(crate::ui::copy::errors::NO_SETTINGS_TO_CHANGE.to_owned());
+        return Err(mail_ui_model::copy::errors::NO_SETTINGS_TO_CHANGE.to_owned());
     };
     let next = match try_consume_context::<PrefsRoot>().and_then(|root| root.0) {
         Some(root) => {
@@ -235,7 +235,7 @@ pub(in crate::ui) fn change_later(
     let mine = REQUESTS.press();
     async move {
         let Some(mut values) = values else {
-            return Err(crate::ui::copy::errors::NO_SETTINGS_TO_CHANGE.to_owned());
+            return Err(mail_ui_model::copy::errors::NO_SETTINGS_TO_CHANGE.to_owned());
         };
         let next = match root {
             Some(root) => {
@@ -287,9 +287,9 @@ fn with_key(
 #[cfg(test)]
 mod tests {
     use super::Latest;
-    use crate::settings::{self, BrandLogos, MailSettings, NewMail, Spelling};
     use crate::ui::appearance::WindowDirs;
     use dioxus::prelude::*;
+    use mail_ui_model::settings::{self, BrandLogos, MailSettings, NewMail, Spelling};
 
     /// A config directory whose `settings.toml` has brand logos on.
     fn dirs_with_logos_on() -> (tempfile::TempDir, WindowDirs) {

@@ -9,8 +9,6 @@
 //! keeps what was typed until it is changed. Keeping one moves the revision, so the window's
 //! scheduler reads again which accounts are pushed to.
 
-use crate::ui::copy::errors;
-use crate::ui::copy::fields::account as row;
 use crate::ui::data::AccountRow;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
@@ -19,6 +17,8 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use mail_client::RelayRefused;
 use mail_client::prelude::CoreError;
+use mail_ui_model::copy::errors;
+use mail_ui_model::copy::fields::account as row;
 
 /// The account's field. Only a Graph account has one (the caller's to know).
 #[component]

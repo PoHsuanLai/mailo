@@ -10,9 +10,6 @@
 //! the next refresh of the server's folders keeps it; "Automatic" gives the role back.
 
 use crate::ui::common::{Problem, classed};
-use crate::ui::copy;
-use crate::ui::copy::fields::account as field;
-use crate::ui::copy::status::account as said;
 use crate::ui::data::AccountRow;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
@@ -22,6 +19,9 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::Syncing;
 use mail_domain::MailboxRole;
+use mail_ui_model::copy;
+use mail_ui_model::copy::fields::account as field;
+use mail_ui_model::copy::status::account as said;
 
 /// Write one preference with `write`, off the thread that draws (the store's writer may be
 /// held by a sync): what names the account reads it again when the client sees the store move,

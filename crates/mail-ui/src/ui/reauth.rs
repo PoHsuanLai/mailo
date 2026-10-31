@@ -14,7 +14,6 @@
 //! suffer it retries by itself, and the sidebar foot's mark says while it does.
 
 use crate::ui::common::in_card;
-use crate::ui::copy;
 use crate::ui::data::account_rows;
 use crate::ui::fetching::{Fetching, Need, Needing};
 use crate::ui::press::{SheetClose, on_primary};
@@ -28,6 +27,7 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::fetch::Link;
 use mail_client::sync::report::Offer;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 

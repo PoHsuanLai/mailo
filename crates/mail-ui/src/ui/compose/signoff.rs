@@ -16,7 +16,7 @@ use super::super::menu::{MenuItem, Right};
 use super::float::commit;
 use super::page::{Float, Page};
 use super::props::ChoiceRow;
-use crate::ui::copy;
+use mail_ui_model::copy;
 
 /// The menu key of "None", which takes the signature off.
 const NONE_KEY: &str = "signature:none";

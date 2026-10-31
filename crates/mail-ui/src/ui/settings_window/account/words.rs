@@ -1,14 +1,14 @@
 //! What an account's page says: the account's servers and sign-in as rows, what Remove takes
 //! with it, and why a removal did not happen. Pure, so each is a table test.
 
-use crate::ui::copy;
-use crate::ui::copy::controls::REMOVE;
-use crate::ui::copy::fields::account as row;
-use crate::ui::copy::status::account as said;
 use crate::ui::files::work::messages;
 use mail_client::Storage;
 use mail_client::account::RemoveError;
 use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
+use mail_ui_model::copy;
+use mail_ui_model::copy::controls::REMOVE;
+use mail_ui_model::copy::fields::account as row;
+use mail_ui_model::copy::status::account as said;
 use porter_provider::Issuer;
 
 /// What the Status row says while an account waits for the person.

@@ -44,6 +44,8 @@ mail-client = { workspace = true, features = ["desktop"] }
 # The seams with the operating system that draw nothing: the launcher's count, the login item, the
 # mail-link handler and what an operation says.
 mail-os.workspace = true
+# What the window knows and says without drawing: the settings files, its words, what is picked.
+mail-ui-model.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
 mail-mime.workspace = true
 mail-reader.workspace = true

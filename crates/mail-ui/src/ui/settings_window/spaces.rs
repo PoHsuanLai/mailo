@@ -16,7 +16,6 @@
 //! or when the page is left. A colour is shown as it is dragged and written when Custom's popover
 //! closes, or at once for a preset.
 
-use crate::ui::copy;
 use crate::ui::space::{Handle, Mail, Space, SpaceId};
 use crate::ui::space_menu::{accounts, toggled};
 use crate::ui::view::{Shell, SpacesPage};
@@ -39,6 +38,7 @@ use ds::style::space::dot_paint::DotPaint;
 use ds::style::space::look::SpaceLook;
 use ds::style::space::palette::derive;
 use mail_client::profile::ProfileId;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// The key of the New Space row, which no Space's id can be.

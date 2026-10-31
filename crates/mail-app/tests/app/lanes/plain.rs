@@ -9,13 +9,16 @@ use super::window::{INBOX, Window, parsed, queued};
 const TO: &str = ".c-props [*|data-row=to] .c-pin input";
 
 /// The window, its `settings.toml` first changed by `edit`.
-fn open_with(edit: impl FnOnce(&mut mail_ui::settings::MailSettings) + 'static) -> Window {
+fn open_with(edit: impl FnOnce(&mut mail_ui_model::settings::MailSettings) + 'static) -> Window {
     Window::open_with(
         chrono::Utc::now(),
         |_| {},
         move |dir, contexts| {
-            mail_ui::settings::change(&mail_ui::settings::root_for(&dir.join("config")), edit)
-                .expect("the setting is written");
+            mail_ui_model::settings::change(
+                &mail_ui_model::settings::root_for(&dir.join("config")),
+                edit,
+            )
+            .expect("the setting is written");
             contexts
         },
     )
@@ -35,7 +38,7 @@ fn assert_text_alone(raw: &str) {
 #[test]
 fn a_new_message_in_plain_text_goes_as_its_text_alone_with_no_formatting_offered() {
     let mut window = open_with(|settings| {
-        settings.compose.format = mail_ui::settings::MessageFormat::Plain;
+        settings.compose.format = mail_ui_model::settings::MessageFormat::Plain;
     });
     window.press(&[], Key::Char('c'), 1);
     window.until("c opens a composer", |h| h.count(".cpage .c-body") == 1);

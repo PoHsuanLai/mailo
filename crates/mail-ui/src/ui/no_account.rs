@@ -6,8 +6,8 @@ use ds::prelude::*;
 
 use dioxus::prelude::*;
 
-use crate::ui::copy;
 use crate::ui::view::Shell;
+use mail_ui_model::copy;
 
 /// "No account to send from", with Add Account… and Cancel.
 #[component]

@@ -4,7 +4,7 @@
 //! removes.
 
 use mail_core::offline::{self, Every, Remove, Window as Reach};
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 
 use super::hands::{click, menu_item, until};
 use super::window::{Window, account};

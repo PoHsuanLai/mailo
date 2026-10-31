@@ -9,13 +9,13 @@
 
 use super::super::menu::{MenuItem, Tile};
 use super::items::{RECENT, avatar_color};
-use crate::ui::copy;
 use crate::ui::space::SpaceId;
 use crate::ui::today::Today;
 use chrono::{DateTime, Utc};
 use ds::prelude::*;
 use mail_client::Client;
 use mail_domain::{Draft, DraftId, ThreadId};
+use mail_ui_model::copy;
 
 /// How many conversations Recent lists. The rest are still a search away.
 const SHOWN: usize = 8;

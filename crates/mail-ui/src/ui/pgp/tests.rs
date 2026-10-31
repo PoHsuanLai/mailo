@@ -328,7 +328,7 @@ pub(super) fn mark(page: &str) -> Option<String> {
 /// Open the trust glyph's popover, and what it lists, as [`lines`] reads the seal's: its title
 /// is not a line.
 pub(super) fn trust_lines(dom: &mut VirtualDom, seen: &Seen) -> Vec<(String, String)> {
-    use crate::ui::copy::tooltips::{ENCRYPTED, NOT_VERIFIED, SIGNED};
+    use mail_ui_model::copy::tooltips::{ENCRYPTED, NOT_VERIFIED, SIGNED};
     let glyph = [ENCRYPTED, SIGNED, NOT_VERIFIED]
         .into_iter()
         .find_map(|name| seen.all("aria-label", name).last().copied())

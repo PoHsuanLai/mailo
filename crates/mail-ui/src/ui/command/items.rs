@@ -13,12 +13,12 @@ use std::collections::HashMap;
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use super::commands::{COMMANDS, Command};
 use crate::ui::actions;
-use crate::ui::copy::menus;
 use chordkit::Keymap;
 use chrono::{DateTime, Utc};
 use mail_client::Client;
 use mail_client::search::{self, ActionHit, PersonHit, Results, Top};
 use mail_domain::ThreadId;
+use mail_ui_model::copy::menus;
 
 /// The commands as the matcher takes them: their words, in the panel's order.
 pub(in crate::ui) fn commands() -> Vec<search::Command> {

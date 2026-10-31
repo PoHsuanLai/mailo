@@ -15,10 +15,10 @@ use ds::root::common::Common;
 use mail_client::Client;
 
 use super::book;
-use crate::ui::copy;
 use crate::ui::menu::{MenuKey, anchor_at, menu_key};
 use crate::ui::motion::{Follow, tell};
 use crate::ui::press::on_primary;
+use mail_ui_model::copy;
 
 /// The name the field starts with: the book's, else the one the mail gave.
 pub(in crate::ui) fn starting_name(client: &Client, address: &str, in_mail: &str) -> String {

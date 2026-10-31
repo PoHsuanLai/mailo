@@ -1,14 +1,13 @@
 //! Several conversations picked at once, in the window: what an action on them means, and the
 //! bar that counts them and acts on them.
 //!
-//! Which conversations are picked is the shell's (`crate::ui::selection`, pure). This is the part
+//! Which conversations are picked is the shell's (`mail_ui_model::selection`, pure). This is the part
 //! that needs the client and the window: every action here goes through `motion::act_all`, so
 //! whatever a gesture does to five conversations is one entry on the undo stack, one toast, and
 //! one Ctrl Z that puts all five back.
 
 use super::motion::{act_all, act_kind_all, motion};
 use super::press::on_primary;
-use crate::ui::copy::{aria, menus, status, tooltips};
 use crate::ui::toolbar::{Tool, ToolButton};
 use crate::ui::view::{Shell, Shortcut, mute_label, op_for_selection};
 use dioxus::prelude::*;
@@ -19,6 +18,7 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
 use mail_client::conversation::mute_for_all;
 use mail_domain::*;
+use mail_ui_model::copy::{aria, menus, status, tooltips};
 
 /// The ids the list drew last, in order: what a click on a row measures a range over.
 pub(super) fn drawn_order() -> Vec<ThreadId> {

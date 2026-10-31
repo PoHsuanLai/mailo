@@ -70,10 +70,10 @@ pub(in crate::ui) fn export(client: &Client, dir: &Path) -> Result<PathBuf, Stri
 /// Why a card's edit was refused, as a sentence for the page.
 fn person_error(error: PersonError) -> String {
     match error {
-        PersonError::Empty => crate::ui::copy::errors::CONTACT_NEEDS_SOMETHING.to_owned(),
-        PersonError::BadAddress(typed) => crate::ui::copy::errors::not_an_address(&typed),
-        PersonError::Gone => crate::ui::copy::errors::CONTACT_GONE.to_owned(),
-        PersonError::InBook { name } => crate::ui::copy::errors::in_address_book(&name),
+        PersonError::Empty => mail_ui_model::copy::errors::CONTACT_NEEDS_SOMETHING.to_owned(),
+        PersonError::BadAddress(typed) => mail_ui_model::copy::errors::not_an_address(&typed),
+        PersonError::Gone => mail_ui_model::copy::errors::CONTACT_GONE.to_owned(),
+        PersonError::InBook { name } => mail_ui_model::copy::errors::in_address_book(&name),
         PersonError::Core(why) => why.to_string(),
     }
 }
@@ -81,9 +81,9 @@ fn person_error(error: PersonError) -> String {
 /// Why a group's edit was refused, as a sentence for the page.
 fn group_error(error: GroupError) -> String {
     match error {
-        GroupError::NoName => crate::ui::copy::errors::GROUP_NEEDS_A_NAME.to_owned(),
-        GroupError::Gone => crate::ui::copy::errors::GROUP_GONE.to_owned(),
-        GroupError::InBook { name } => crate::ui::copy::errors::in_address_book(&name),
+        GroupError::NoName => mail_ui_model::copy::errors::GROUP_NEEDS_A_NAME.to_owned(),
+        GroupError::Gone => mail_ui_model::copy::errors::GROUP_GONE.to_owned(),
+        GroupError::InBook { name } => mail_ui_model::copy::errors::in_address_book(&name),
         GroupError::Core(why) => why.to_string(),
     }
 }
@@ -143,7 +143,7 @@ pub(in crate::ui) fn add_sender(
     {
         Added::New(card) => Ok((
             card.id,
-            Some(crate::ui::copy::toasts::added_to_contacts(&card.name)),
+            Some(mail_ui_model::copy::toasts::added_to_contacts(&card.name)),
         )),
         Added::Already(card) => Ok((card.id, None)),
     }
@@ -249,10 +249,10 @@ pub(in crate::ui) fn photo_url(name: &str, bytes: &[u8]) -> Result<String, Strin
         Some("jpg" | "jpeg") => "jpeg",
         Some("gif") => "gif",
         Some("webp") => "webp",
-        _ => return Err(crate::ui::copy::errors::NOT_A_PICTURE.to_owned()),
+        _ => return Err(mail_ui_model::copy::errors::NOT_A_PICTURE.to_owned()),
     };
     if bytes.len() > PHOTO_LIMIT {
-        return Err(crate::ui::copy::errors::PHOTO_TOO_LARGE.to_owned());
+        return Err(mail_ui_model::copy::errors::PHOTO_TOO_LARGE.to_owned());
     }
     Ok(format!(
         "data:image/{kind};base64,{}",

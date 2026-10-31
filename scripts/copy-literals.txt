@@ -1,7 +1,7 @@
-# Visible string literals still written under crates/mail-ui/src/ui outside ui/copy/, per file,
-# as scripts/copy-literals.py counts them. A ratchet (scripts/check-copy.sh): it fails when a
+# Visible string literals still written under crates/mail-ui/src/ui and in crates/mail-ui-model/src
+# outside its copy/, per file, as scripts/copy-literals.py counts them. A ratchet (scripts/check-copy.sh): it fails when a
 # count rises or an unlisted file gains one, and when a count falls until this file says so.
-# A new word goes in crates/mail-ui/src/ui/copy/. Format: "<file> <count>".
+# A new word goes in crates/mail-ui-model/src/copy/. Format: "<file> <count>".
 crates/mail-ui/src/ui/app.rs 3
 crates/mail-ui/src/ui/bin.rs 11
 crates/mail-ui/src/ui/brand.rs 1
@@ -22,10 +22,8 @@ crates/mail-ui/src/ui/view.rs 8
 crates/mail-ui/src/ui/view_groups.rs 17
 crates/mail-ui/src/ui/views.rs 14
 crates/mail-ui/src/ui/add_account/direct.rs 5
-crates/mail-ui/src/ui/add_account/host.rs 1
 crates/mail-ui/src/ui/add_account/map.rs 8
 crates/mail-ui/src/ui/add_account/mod.rs 1
-crates/mail-ui/src/ui/add_account/provider.rs 2
 crates/mail-ui/src/ui/command/bar.rs 1
 crates/mail-ui/src/ui/command/items.rs 2
 crates/mail-ui/src/ui/command/spotlight.rs 1
@@ -56,7 +54,6 @@ crates/mail-ui/src/ui/downloads/panel.rs 13
 crates/mail-ui/src/ui/emoji/mod.rs 9
 crates/mail-ui/src/ui/fetching/face.rs 3
 crates/mail-ui/src/ui/fetching/mod.rs 1
-crates/mail-ui/src/ui/fetching/status.rs 20
 crates/mail-ui/src/ui/files/export_sheet.rs 18
 crates/mail-ui/src/ui/files/import_sheet.rs 20
 crates/mail-ui/src/ui/files/mod.rs 1
@@ -89,3 +86,6 @@ crates/mail-ui/src/ui/unsubscribe/head.rs 5
 crates/mail-ui/src/ui/unsubscribe/mod.rs 12
 crates/mail-ui/src/ui/window/mod.rs 1
 crates/mail-ui/src/ui/window/note.rs 3
+crates/mail-ui-model/src/add_account/host.rs 1
+crates/mail-ui-model/src/add_account/provider.rs 2
+crates/mail-ui-model/src/fetching/status.rs 20

@@ -81,7 +81,7 @@ impl BlobBytes {
         if self.len > self.limit {
             return Err(Error::new(
                 ErrorKind::FileTooLarge,
-                crate::ui::copy::status::TOO_LARGE_TO_PEEK,
+                mail_ui_model::copy::status::TOO_LARGE_TO_PEEK,
             ));
         }
         let bytes: Arc<[u8]> = self
@@ -191,7 +191,7 @@ pub(super) fn see(client: &Client, message: MessageId, index: usize) -> Seen {
         Err(why) => return unreadable(why),
     };
     let Some(attachment) = message.attachments.get(index) else {
-        return Seen::Failed(crate::ui::copy::status::no_attachment(index));
+        return Seen::Failed(mail_ui_model::copy::status::no_attachment(index));
     };
     let Some(blob) = attachment.blob() else {
         return Seen::NotHere;
@@ -219,14 +219,14 @@ pub(super) fn see(client: &Client, message: MessageId, index: usize) -> Seen {
     );
     match look(input) {
         Some(peeked) => Seen::Ready(peeked),
-        None => Seen::Failed(crate::ui::copy::status::TOOK_TOO_LONG.to_owned()),
+        None => Seen::Failed(mail_ui_model::copy::status::TOOK_TOO_LONG.to_owned()),
     }
 }
 
 /// A part the client could not read: the reason goes to the log, and the card says only that.
 fn unreadable(why: impl std::fmt::Display) -> Seen {
     log::warn!("an attachment could not be read for anyview: {why}");
-    Seen::Failed(crate::ui::copy::status::UNREADABLE.to_owned())
+    Seen::Failed(mail_ui_model::copy::status::UNREADABLE.to_owned())
 }
 
 /// The name anyview sniffs by: the sender's claim made safe to write, or "file" when nothing is left.

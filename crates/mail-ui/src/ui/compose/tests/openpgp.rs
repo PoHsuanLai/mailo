@@ -159,7 +159,7 @@ async fn security_is_chosen_from_the_more_menu_and_drawn_only_while_set() {
     window.dom.in_runtime(|| page.write().float = Float::More);
     let markup = window.render();
     assert!(
-        markup.contains(crate::ui::copy::menus::SECURITY),
+        markup.contains(mail_ui_model::copy::menus::SECURITY),
         "⋯ has no Security:\n{markup}"
     );
     window.dom.in_runtime(|| {
@@ -194,7 +194,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
 
     let mut after = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert!(
@@ -208,7 +208,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     // Send again: still held.
     after = after.merge(click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     ));
     assert!(queued(&store).is_empty(), "the second press sent it");
     assert!(
@@ -273,7 +273,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     let (mut window, seen) = window_with(store.clone(), draft, seams);
     let after = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let mut looked = click(&mut window.dom, last(&after, "aria-label", "Look up keys"));
     let markup = until(&mut window, &mut looked, |page| page.contains("Found dana")).await;
@@ -286,7 +286,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
 
     let mut sent = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     while queued(&store).is_empty() && tokio::time::Instant::now() < give_up {
@@ -309,7 +309,7 @@ async fn no_key_of_ones_own_offers_to_make_one() {
     let (mut window, seen) = window(store.clone(), draft, Arc::default());
     let after = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert!(
@@ -352,7 +352,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
 
     let mut after = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let prompt = format!(
         "Passphrase for key {}",
@@ -421,7 +421,7 @@ pub(in crate::ui) async fn drawn_states() -> String {
     let (mut window, seen) = window(store, draft, secrets);
     click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let mut markup = window.render();
     assert!(markup.contains("ds-inline-banner"), "{markup}");

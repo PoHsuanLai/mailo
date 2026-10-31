@@ -8,11 +8,11 @@
 //! recorded, and is checked again before anything is removed, so nothing saved to Downloads, to a
 //! folder the person chose, or anywhere else can be reached from here.
 
-use crate::settings::RemoveUnedited;
 use dioxus::prelude::*;
 use mail_client::Client;
 use mail_client::prelude::StoreError;
 use mail_domain::{MailboxRole, MessageId};
+use mail_ui_model::settings::RemoveUnedited;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;

@@ -5,7 +5,6 @@
 use super::head::{Confirm, Phase};
 use super::{Offer, archive_from, ask, leave};
 use crate::ui::app::App;
-use crate::ui::copy::menus::UNSUBSCRIBE;
 use crate::ui::fixtures::settle_for;
 use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, menu_names, rebuild_into, seeded,
@@ -20,6 +19,7 @@ use mail_core::message::{Looks, Read};
 use mail_core::unsubscribe::{Found, Outcome};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_model::copy::menus::UNSUBSCRIBE;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -143,7 +143,7 @@ fn Open(thread: ThreadId) -> Element {
 /// Open the reader's ⋯ and return the names it lists.
 fn more_names(dom: &mut VirtualDom, seen: &Seen) -> Vec<String> {
     let more = *seen
-        .all("aria-label", crate::ui::copy::aria::MORE)
+        .all("aria-label", mail_ui_model::copy::aria::MORE)
         .last()
         .expect("the reader's ⋯");
     let opened = click(dom, more);

@@ -5,11 +5,12 @@
 //! no words about syncing. A count is the one thing drawn here as well, because it is the list
 //! it is filling. A component of its own, so a tick of the clock draws the bar and not the list.
 
-use crate::ui::fetching::{thousandths, use_status};
+use crate::ui::fetching::use_status;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_ui_model::fetching::status::thousandths;
 
 #[component]
 pub(super) fn ListProgress(shell: Signal<Shell>) -> Element {

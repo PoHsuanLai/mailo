@@ -688,13 +688,13 @@ fn privacy_starts_straight_and_asks_about_images() {
     );
     assert_eq!(
         privacy.route(None),
-        Ok(mail_core::remote_image::Route::Direct)
+        Ok(mail_client::remote_image::Route::Direct)
     );
 }
 
 #[test]
 fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
-    use mail_core::remote_image::Route;
+    use mail_client::remote_image::Route;
     // (what is set, the relay's key as the keyring holds it, what the route is)
     let cases: Vec<(
         super::PrivacySettings,
@@ -833,15 +833,15 @@ fn notify_for_starts_at_all_new_mail_and_vips_only_is_written_and_read_back() {
     assert_eq!(key.labels.of("vips"), Some("VIPs only"));
     assert_eq!(key.default, toml::Value::String("all".to_owned()));
     assert_eq!(
-        mail_core::notify::Whom::from(NotifyFor::Vips),
-        mail_core::notify::Whom::Vips
+        mail_client::notify::Whom::from(NotifyFor::Vips),
+        mail_client::notify::Whom::Vips
     );
 }
 
 #[test]
 fn the_notification_settings_say_what_the_core_listens_for() {
     use super::{NotificationSettings, NotifyPlaces, NotifySound};
-    use mail_core::notify::{Places, Sound};
+    use mail_client::notify::{Places, Sound};
     let mut settings = NotificationSettings::default();
     let heard = settings.interest();
     assert_eq!(heard.places, Places::Inbox);

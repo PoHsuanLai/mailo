@@ -5,7 +5,7 @@
 
 use ds::base::press::PointerButton;
 use ds::prelude::Point;
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 
 use super::drive::{Drive, Key};
 use super::hands::menu_item;

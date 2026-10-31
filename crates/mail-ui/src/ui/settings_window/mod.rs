@@ -5,7 +5,7 @@
 //!
 //! Pages: General, Accounts, Contacts, Signatures, Spaces, Composing, Viewing, Notifications, Privacy, Junk Mail, Rules,
 //! Vacation Reply and Keyboard. General, Composing, Viewing, Notifications, Privacy and Junk Mail draw
-//! mailo's settings schema (`crate::settings`) as groups of rows ([`pages`], each row a key's,
+//! mailo's settings schema (`mail_ui_model::settings`) as groups of rows ([`pages`], each row a key's,
 //! drawn by [`keys`]), the same keys detent draws on mailo's page and writes to the same
 //! `mailo/settings.toml`. Accounts lists each account, whose row pushes its own page into the
 //! pane ([`account`]): its mail kept here, its encryption keys, and its removal. Signatures lists
@@ -51,7 +51,6 @@ pub(in crate::ui) use keys::with_value;
 pub(in crate::ui) use page::PAGES;
 pub use root::settings_root;
 
-use crate::ui::copy;
 use crate::ui::space::SpaceId;
 use crate::ui::view::{
     AccountStep, AccountsPage, AccountsPane, ContactsPage, PageId, RulesAt, Shell, SpacesPage,
@@ -62,6 +61,7 @@ use ds::components::chrome::sidebar::Sidebar;
 use ds::components::chrome::sidebar_model::SidebarSection;
 use ds::prelude::*;
 use ds_blitz::{WindowHandle, WindowSpec};
+use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -292,7 +292,7 @@ fn quire() {
         Err(why) => {
             log::warn!("the Settings window would not open: {why}");
             crate::ui::motion::tell(
-                crate::ui::copy::toasts::would_not_open(TITLE),
+                mail_ui_model::copy::toasts::would_not_open(TITLE),
                 crate::ui::motion::Follow::Nothing,
             );
         }

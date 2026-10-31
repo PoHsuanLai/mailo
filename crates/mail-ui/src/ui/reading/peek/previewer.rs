@@ -17,11 +17,11 @@
 
 use super::own::{self, Sheet};
 use super::part::{Drawn, picture};
-use crate::ui::copy;
 use mail_client::Client;
 use mail_client::attachment_image;
 use mail_client::when::Clock;
 use mail_domain::{BlobId, MessageId};
+use mail_ui_model::copy;
 use std::fmt::Debug;
 
 /// How many leading bytes the rule reads.

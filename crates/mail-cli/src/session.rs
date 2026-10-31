@@ -100,7 +100,7 @@ where
                     store.as_ref(),
                     &Scope::All,
                     chrono::Utc::now(),
-                    mail_ui::settings::badge_places(),
+                    mail_ui_model::settings::badge_places(),
                 ) && beat.due(Instant::now(), count)
                 {
                     badge.show(count);

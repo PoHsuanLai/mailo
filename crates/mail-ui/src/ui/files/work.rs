@@ -15,10 +15,10 @@ use mail_client::transfer::{self, IoCause, Refusal, Seen};
 use mail_domain::{Filter, MailboxRole, Star};
 use porter_core::AccountId;
 
-use crate::ui::copy;
 use crate::ui::view::{Shell, Source as Listed};
 use mail_client::export::{Exported, Target};
 use mail_client::import::{Destination, Imported, Source};
+use mail_ui_model::copy;
 
 pub(in crate::ui) use mail_client::transfer::{expand_here, suggested};
 

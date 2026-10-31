@@ -12,8 +12,8 @@ use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleId, RuleState};
 use porter_core::AccountId;
 
 use super::super::files::work::{grouped, messages};
-use crate::ui::copy;
 use crate::ui::remedy::plainly;
+use mail_ui_model::copy;
 
 pub(in crate::ui) use mail_client::rules::manage::{Draft, Step};
 

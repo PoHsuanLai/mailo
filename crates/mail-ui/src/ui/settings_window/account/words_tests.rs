@@ -1,5 +1,4 @@
 use super::{asking, refused, settings, storage};
-use crate::ui::copy::status::account::{storage_nearly_full, storage_used};
 use mail_core::Storage;
 use mail_core::account::RemoveError;
 use mail_domain::human_size as amount;
@@ -7,6 +6,7 @@ use mail_domain::{
     AccountPlan, Address, AuthPlan, HttpAuth, Identity, Incoming, LeaveOnServer, Outgoing,
     SaslMech, Tls, Username,
 };
+use mail_ui_model::copy::status::account::{storage_nearly_full, storage_used};
 use porter_provider::Issuer;
 
 const ADDRESS: &str = "ada@example.com";
@@ -174,7 +174,7 @@ fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
     for (incoming, held, has, lacks) in cases {
         let asked = asking(ADDRESS, held, &incoming);
         assert_eq!(asked.title, "Remove ada@example.com?");
-        assert_eq!(asked.confirm, crate::ui::copy::controls::REMOVE);
+        assert_eq!(asked.confirm, mail_ui_model::copy::controls::REMOVE);
         assert!(asked.body.contains(has), "{incoming:?}: {}", asked.body);
         assert!(!asked.body.contains(lacks), "{incoming:?}: {}", asked.body);
         assert!(
@@ -238,7 +238,7 @@ fn storage_says_what_is_used_of_the_limit_and_when_it_is_nearly_full() {
             storage_used(&used, &limit)
         };
         let line = storage(&found);
-        assert_eq!(line.label, crate::ui::copy::fields::account::STORAGE);
+        assert_eq!(line.label, mail_ui_model::copy::fields::account::STORAGE);
         assert_eq!(line.value, said, "{found:?}");
     }
 }

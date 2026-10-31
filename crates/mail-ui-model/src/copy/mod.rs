@@ -15,7 +15,7 @@
 //! confirmation. A header is one or two words ("Drafts", not "Drafts put aside").
 //!
 //! What is not here is held to a ratchet: `./scripts/check-copy.sh` counts the visible literals
-//! still written elsewhere under `ui/` (scripts/copy-literals.txt), and fails when one is added.
+//! still written elsewhere in the window (scripts/copy-literals.txt), and fails when one is added.
 //! Tests name a word by its constant here, so rewording it does not break them.
 
 pub mod aria;

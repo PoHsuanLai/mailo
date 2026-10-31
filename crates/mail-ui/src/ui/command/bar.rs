@@ -5,7 +5,6 @@
 //! typed here.
 
 use super::spotlight::summon;
-use crate::ui::copy;
 use crate::ui::press::on_primary;
 use crate::ui::view::{Bar, Shell};
 use chrono::Utc;
@@ -16,6 +15,7 @@ use ds::prelude::*;
 use ds::style::icon::render::IconPx;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::search;
+use mail_ui_model::copy;
 
 /// What the toolbar's search is called, to a screen reader and to a test.
 pub(in crate::ui) const BOX_LABEL: &str = "Search";
@@ -260,7 +260,7 @@ mod tests {
         let mut dom = VirtualDom::new(Searching);
         dom.rebuild_in_place();
         let page = dioxus_ssr::render(&dom);
-        assert!(page.contains(crate::ui::copy::aria::FILTER), "{page}");
+        assert!(page.contains(mail_ui_model::copy::aria::FILTER), "{page}");
     }
 
     #[test]

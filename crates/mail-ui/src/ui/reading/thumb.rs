@@ -21,9 +21,9 @@ use ds::style::icon::render::Glyph;
 use mail_client::Client;
 use mail_domain::MessageId;
 
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_client::attachment_image::{self, Kind, Picture, Unavailable};
+use mail_ui_model::copy;
 
 /// The thumbnail's room, in logical pixels.
 const ROOM: f32 = 56.0;

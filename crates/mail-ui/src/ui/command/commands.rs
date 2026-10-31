@@ -9,7 +9,6 @@
 
 use super::close;
 use crate::ui::bin::Bin;
-use crate::ui::copy::{menus, status, toasts};
 use crate::ui::motion::{Follow, tell};
 use crate::ui::ops::{Composes, Writes, open_composer};
 use crate::ui::view::{Bar, BarListing, Shell, Source};
@@ -18,6 +17,7 @@ use dioxus::prelude::*;
 use ds::prelude::Icon;
 use mail_client::mailbox_filter::for_role;
 use mail_domain::ThreadId;
+use mail_ui_model::copy::{menus, status, toasts};
 
 /// What a command acts on: the window's shell, the list's pages and whether the sidebar is
 /// hidden.

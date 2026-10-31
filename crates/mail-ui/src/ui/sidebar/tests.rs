@@ -66,20 +66,20 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
             "Work Space",
             "Home Space",
             "Club Space",
-            crate::ui::copy::aria::SIDEBAR_MENU
+            mail_ui_model::copy::aria::SIDEBAR_MENU
         ],
         "{page}"
     );
     assert_eq!(
         labels.last().copied(),
-        Some(crate::ui::copy::aria::SIDEBAR_MENU),
+        Some(mail_ui_model::copy::aria::SIDEBAR_MENU),
         "{page}"
     );
     for gone in [
-        crate::ui::copy::titles::SETTINGS,
-        crate::ui::copy::aria::SIDEBAR,
-        crate::ui::copy::menus::HIDE_SIDEBAR,
-        crate::ui::copy::menus::SHOW_SIDEBAR,
+        mail_ui_model::copy::titles::SETTINGS,
+        mail_ui_model::copy::aria::SIDEBAR,
+        mail_ui_model::copy::menus::HIDE_SIDEBAR,
+        mail_ui_model::copy::menus::SHOW_SIDEBAR,
     ] {
         assert!(
             !labels.contains(&gone),
@@ -130,16 +130,16 @@ async fn sync_is_the_foots_mark_and_the_list_header_is_its_title_and_four_icons(
     let foot = labels("ds-spaces-foot");
     assert_eq!(
         foot.first().map(String::as_str),
-        Some(crate::ui::copy::aria::SYNC_NOW),
+        Some(mail_ui_model::copy::aria::SYNC_NOW),
         "{foot:?}"
     );
     assert_eq!(
         labels("list-head"),
         [
-            crate::ui::copy::aria::NEW_MESSAGE,
-            crate::ui::copy::aria::FILTER,
+            mail_ui_model::copy::aria::NEW_MESSAGE,
+            mail_ui_model::copy::aria::FILTER,
             crate::ui::command::BOX_LABEL,
-            crate::ui::copy::aria::MORE,
+            mail_ui_model::copy::aria::MORE,
         ],
         "{page}"
     );
@@ -288,7 +288,7 @@ async fn a_label_row_offers_edit_label_on_a_right_click_and_has_no_overflow_butt
     let seen = seen.merge(settle_quiet_seen(&mut dom).await);
     let page = dioxus_ssr::render(&dom);
     assert!(
-        !page.contains(&crate::ui::copy::aria::actions_for("spec")),
+        !page.contains(&mail_ui_model::copy::aria::actions_for("spec")),
         "an always-visible overflow button on the label's row"
     );
     assert!(
@@ -302,7 +302,7 @@ async fn a_label_row_offers_edit_label_on_a_right_click_and_has_no_overflow_butt
     let page = dioxus_ssr::render(&dom);
     assert_eq!(
         menu_names(&page),
-        [crate::ui::copy::menus::EDIT_LABEL],
+        [mail_ui_model::copy::menus::EDIT_LABEL],
         "the label row's right click"
     );
 }

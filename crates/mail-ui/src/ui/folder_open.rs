@@ -24,7 +24,7 @@ impl Fetcher {
         Self(Arc::new(move |_, account, path, _now| {
             let client = client
                 .upgrade()
-                .ok_or_else(|| crate::ui::copy::errors::WINDOW_CLOSED.to_owned())?;
+                .ok_or_else(|| mail_ui_model::copy::errors::WINDOW_CLOSED.to_owned())?;
             client
                 .net()
                 .folder_now(account, path)

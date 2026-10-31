@@ -72,10 +72,10 @@ async fn a_new_message_draws_subject_to_the_body_and_the_foot_and_nothing_else()
     }
     // The foot: Attach, ⋯, Send ▾, and one filled button.
     for name in [
-        crate::ui::copy::controls::ATTACH,
-        crate::ui::copy::aria::MORE,
-        crate::ui::copy::controls::SEND,
-        crate::ui::copy::aria::SEND_OPTIONS,
+        mail_ui_model::copy::controls::ATTACH,
+        mail_ui_model::copy::aria::MORE,
+        mail_ui_model::copy::controls::SEND,
+        mail_ui_model::copy::aria::SEND_OPTIONS,
         "Add Cc",
         "Add Bcc",
     ] {
@@ -272,28 +272,28 @@ fn send_menu_and_more_hold_every_choice_once() {
     assert_eq!(
         titles(&send_items(&page, at(0), &Utc, mail_core::when::Clock::H24)),
         [
-            crate::ui::copy::menus::SEND_LATER,
-            crate::ui::copy::menus::REMIND_IF_NO_REPLY,
+            mail_ui_model::copy::menus::SEND_LATER,
+            mail_ui_model::copy::menus::REMIND_IF_NO_REPLY,
             "Ask for Read Receipt"
         ]
     );
     assert_eq!(
         titles(&more_items(&page, true)),
         [
-            crate::ui::copy::menus::SECURITY,
-            crate::ui::copy::menus::PRIORITY,
-            crate::ui::copy::menus::REQUEST_DELIVERY_RECEIPT,
+            mail_ui_model::copy::menus::SECURITY,
+            mail_ui_model::copy::menus::PRIORITY,
+            mail_ui_model::copy::menus::REQUEST_DELIVERY_RECEIPT,
             "Show Plain Text",
-            crate::ui::copy::menus::SAVE_AS_TEMPLATE,
+            mail_ui_model::copy::menus::SAVE_AS_TEMPLATE,
             "—",
-            crate::ui::copy::menus::KEEP_FOR_LATER,
-            crate::ui::copy::menus::DELETE_DRAFT,
+            mail_ui_model::copy::menus::KEEP_FOR_LATER,
+            mail_ui_model::copy::menus::DELETE_DRAFT,
         ]
     );
     // An account that cannot ask for a report is not offered the choice.
     assert!(
         !titles(&more_items(&page, false))
-            .contains(&crate::ui::copy::menus::REQUEST_DELIVERY_RECEIPT.to_owned()),
+            .contains(&mail_ui_model::copy::menus::REQUEST_DELIVERY_RECEIPT.to_owned()),
         "no Request Delivery Receipt where it does nothing"
     );
     let mut page = page;
@@ -321,14 +321,17 @@ fn priority_and_a_delivery_receipt_are_picked_from_more_and_saved_on_the_draft()
             .flat_map(|item| match item {
                 Line::Submenu {
                     title, children, ..
-                } if title == crate::ui::copy::menus::PRIORITY => {
+                } if title == mail_ui_model::copy::menus::PRIORITY => {
                     children.iter().filter_map(on).collect()
                 }
                 item => on(item).into_iter().collect::<Vec<_>>(),
             })
             .collect()
     };
-    assert_eq!(checked(&page), [crate::ui::copy::menus::PRIORITY_NORMAL]);
+    assert_eq!(
+        checked(&page),
+        [mail_ui_model::copy::menus::PRIORITY_NORMAL]
+    );
     let before = page.edits;
 
     assert_eq!(pick_more(&mut page, "priority:high"), More::Done);
@@ -336,8 +339,8 @@ fn priority_and_a_delivery_receipt_are_picked_from_more_and_saved_on_the_draft()
     assert_eq!(
         checked(&page),
         [
-            crate::ui::copy::menus::PRIORITY_HIGH,
-            crate::ui::copy::menus::REQUEST_DELIVERY_RECEIPT
+            mail_ui_model::copy::menus::PRIORITY_HIGH,
+            mail_ui_model::copy::menus::REQUEST_DELIVERY_RECEIPT
         ]
     );
     assert_eq!(

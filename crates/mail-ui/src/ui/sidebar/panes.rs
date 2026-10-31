@@ -3,7 +3,6 @@
 use super::super::motion::{drag, motion};
 use super::lit::{Landing, Under, lit};
 use super::tagged;
-use crate::ui::copy;
 use crate::ui::space::{Pinned, Space};
 use crate::ui::text::sender;
 use crate::ui::view::{
@@ -26,6 +25,7 @@ use ds::style::tokens::person::PersonSwatch;
 use mail_client::mailbox_filter::{for_role, pending_snooze};
 use mail_client::query::{self};
 use mail_domain::*;
+use mail_ui_model::copy;
 
 /// The most pinned conversations Favourites shows: the most recently pinned. Every pinned
 /// conversation is in Pinned.

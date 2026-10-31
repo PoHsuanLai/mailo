@@ -212,7 +212,7 @@ These are quire's colours. mailo adds nothing:
 - Title Case for controls, menu items, tips and window titles. Sentence case for sentences.
 - Short: a header is one or two words. A button is a verb or verb + noun.
 - Plain words, no jargon: "Scheduled", not "Waiting to be sent". Protocol names (IMAP, JMAP, Graph) appear only in Settings › Accounts › details.
-- All text lives in `crates/mail-ui/src/ui/copy/`, by kind.
+- All text lives in `crates/mail-ui-model/src/copy/`, by kind.
 
 ## 8. Motion
 
@@ -232,6 +232,6 @@ A design review of any screen asks, in order:
 4. Three text styles or fewer, from §4's table? (§4)
 5. Does hue appear only as a claim? (§5)
 6. At most three toolbar actions plus ⋯, one primary, tips on every icon? (§6)
-7. Is the copy short, in the right case, and in `ui/copy`? (§7)
+7. Is the copy short, in the right case, and in `copy/`? (§7)
 
 Each finding names the rule it breaks, the file and line, and the change. Prefer removing to restyling.

@@ -143,7 +143,7 @@ pub(super) fn open_composer(
 /// was when the setting is off, or when the copy could not be written (the message is still
 /// worth writing without it, and the composer shows its Cc and Bcc).
 fn copied(client: &Client, draft: Draft) -> Draft {
-    use crate::settings::CopyMyself;
+    use mail_ui_model::settings::CopyMyself;
     let to = match crate::ui::prefs::current().compose.copy_myself {
         CopyMyself::Off => return draft,
         CopyMyself::Cc => mail_client::compose::Myself::Cc,

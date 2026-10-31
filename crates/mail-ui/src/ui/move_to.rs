@@ -18,7 +18,6 @@ use super::menu::{MenuItem, anchor_for, narrowed, palette_groups};
 use super::motion::drag::Drag;
 use super::motion::{act_all, motion};
 use super::picks::with_selection;
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
@@ -27,6 +26,7 @@ use ds::prelude::*;
 use mail_client::Client;
 use mail_domain::Label;
 use mail_domain::*;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// What a pick in the menu does with the conversation.

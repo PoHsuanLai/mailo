@@ -10,12 +10,12 @@ use super::header::{named, when_label};
 use super::sender_face;
 use super::thumb::pressed;
 use crate::ui::common::classed;
-use crate::ui::copy::aria;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::prelude::*;
 use mail_domain::{Message, MessageId};
+use mail_ui_model::copy::aria;
 use std::collections::HashSet;
 
 /// How a message of a conversation is drawn.

@@ -5,13 +5,13 @@
 //! read again on every revision as the labels are, so a mark made anywhere moves the rows, the
 //! reader and the VIPs place together.
 
-use crate::ui::copy;
 use crate::ui::motion::tell_through;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
 use mail_client::vip::Mark;
+use mail_ui_model::copy;
 
 /// Where a mark made in the reader lands: the window's shell.
 /// The reader provides it, so the sender's name below it can mark without being handed both.

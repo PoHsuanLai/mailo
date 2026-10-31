@@ -89,11 +89,11 @@ async fn the_reader_does_not_offer_to_load_images_a_message_does_not_have() {
         "offered to load images for a message that has none:\n{markup}"
     );
     assert!(
-        !markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
+        !markup.contains(mail_ui_model::copy::controls::LOAD_IMAGES),
         "offered to load images for a message that has none:\n{markup}"
     );
     assert!(
-        !markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+        !markup.contains(mail_ui_model::copy::status::IMAGES_HIDDEN),
         "a consent bar for a message with nothing remote:\n{markup}"
     );
     assert_eq!(text_of(&markup, "reader-av"), "G", "{markup}");
@@ -113,11 +113,11 @@ async fn the_reader_offers_to_load_images_when_it_blocked_some() {
     let markup = reader_markup(store, thread);
 
     assert!(
-        markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
+        markup.contains(mail_ui_model::copy::controls::LOAD_IMAGES),
         "a tracking pixel was blocked and nothing said so:\n{markup}"
     );
     assert!(
-        markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+        markup.contains(mail_ui_model::copy::status::IMAGES_HIDDEN),
         "the offer does not say what agreeing does:\n{markup}"
     );
     assert!(
@@ -163,7 +163,7 @@ async fn showing_images_removes_the_consent_button() {
         "the URL was on the page before consent:\n{before}"
     );
 
-    let id = seen.one("aria-label", crate::ui::copy::controls::LOAD_IMAGES);
+    let id = seen.one("aria-label", mail_ui_model::copy::controls::LOAD_IMAGES);
     click(&mut dom, id);
     let after = dioxus_ssr::render(&dom);
     // Once shown, images say nothing more: the bar goes with the question it asked.
@@ -283,7 +283,7 @@ async fn older_messages_are_one_line_and_a_press_opens_one() {
 
     let lines = seen.all(
         "aria-label",
-        crate::ui::copy::aria::open_message("Ada").as_str(),
+        mail_ui_model::copy::aria::open_message("Ada").as_str(),
     );
     assert_eq!(lines.len(), 2, "{page}");
     click(&mut dom, lines[0]);
@@ -541,7 +541,7 @@ async fn plain_text_body_is_rendered_in_sandboxed_iframe() {
 
 /// The reader over `thread` as a window whose Privacy relay or proxy is `problem` provides it.
 #[component]
-fn OpenRouted(thread: ThreadId, problem: Option<crate::settings::RouteProblem>) -> Element {
+fn OpenRouted(thread: ThreadId, problem: Option<mail_ui_model::settings::RouteProblem>) -> Element {
     let routed = use_memo(move || problem);
     use_context_provider(|| routed);
     let shell = use_signal(Shell::default);
@@ -552,7 +552,7 @@ fn OpenRouted(thread: ThreadId, problem: Option<crate::settings::RouteProblem>) 
 /// nor Always Load from: the images are not fetched straight to make up for it.
 #[tokio::test]
 async fn an_unusable_route_says_so_in_place_of_load_images() {
-    use crate::settings::RouteProblem;
+    use mail_ui_model::settings::RouteProblem;
     let html = "<p>Look at this:</p><img src=\"https://remote.example/pixel.png\">";
     for problem in [
         RouteProblem::Relay,
@@ -572,11 +572,11 @@ async fn an_unusable_route_says_so_in_place_of_load_images() {
         dom.rebuild_in_place();
         let markup = dioxus_ssr::render(&dom);
         assert!(
-            markup.contains(crate::ui::copy::status::images_not_routed(problem)),
+            markup.contains(mail_ui_model::copy::status::images_not_routed(problem)),
             "{problem:?}: the line is missing:\n{markup}"
         );
         assert!(
-            !markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
+            !markup.contains(mail_ui_model::copy::controls::LOAD_IMAGES),
             "{problem:?}: Load Images is still offered:\n{markup}"
         );
     }
@@ -588,11 +588,11 @@ async fn blocked_remote_images_trigger_consent_banner() {
     let (store, thread, _dir) = thread_of(&[("tracker test", html_message("tracker test", html))]);
     let markup = reader_markup(store, thread);
     assert!(
-        markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+        markup.contains(mail_ui_model::copy::status::IMAGES_HIDDEN),
         "banner missing:\n{markup}"
     );
     assert!(
-        markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
+        markup.contains(mail_ui_model::copy::controls::LOAD_IMAGES),
         "show images button missing:\n{markup}"
     );
     let srcdoc = iframe_srcdoc(&markup);
@@ -621,20 +621,21 @@ fn pixel_from_ada(dmarc: bool) -> Vec<u8> {
 
 /// A config directory whose `settings.toml` says `edit`, and the window directories over it.
 fn configured(
-    edit: impl FnOnce(&mut crate::settings::MailSettings),
+    edit: impl FnOnce(&mut mail_ui_model::settings::MailSettings),
 ) -> (tempfile::TempDir, crate::ui::appearance::WindowDirs) {
     let dir = tempfile::tempdir().unwrap();
     let dirs = crate::ui::appearance::WindowDirs {
         config: dir.path().join("config"),
         state: dir.path().join("state"),
     };
-    crate::settings::change(&crate::settings::root_for(&dirs.config), edit).unwrap();
+    mail_ui_model::settings::change(&mail_ui_model::settings::root_for(&dirs.config), edit)
+        .unwrap();
     (dir, dirs)
 }
 
 /// What `settings.toml` under `dirs` says now.
-fn stored(dirs: &crate::ui::appearance::WindowDirs) -> crate::settings::MailSettings {
-    crate::settings::load(&crate::settings::root_for(&dirs.config))
+fn stored(dirs: &crate::ui::appearance::WindowDirs) -> mail_ui_model::settings::MailSettings {
+    mail_ui_model::settings::load(&mail_ui_model::settings::root_for(&dirs.config))
 }
 
 /// The reader over `thread`, under the settings in the `WindowDirs` it is handed, as a window
@@ -684,7 +685,7 @@ fn ada() -> Address {
 /// Whether the reader drew the pixel: in the frame, not blocked, with nothing asking about it.
 fn loaded_pixel(markup: &str) -> bool {
     iframe_srcdoc(markup).contains("remote.example/pixel.png")
-        && !markup.contains(crate::ui::copy::status::IMAGES_HIDDEN)
+        && !markup.contains(mail_ui_model::copy::status::IMAGES_HIDDEN)
 }
 
 #[tokio::test]
@@ -692,7 +693,7 @@ async fn always_opens_with_images_and_no_blocked_banner() {
     // No checks at all: Always does not ask who the sender is, only where the message is filed,
     // so the first frame already has the images; nothing waits.
     let (_config, dirs) = configured(|settings| {
-        settings.reading.remote_images = crate::settings::LoadRemoteImages::Always;
+        settings.reading.remote_images = mail_ui_model::settings::LoadRemoteImages::Always;
     });
     let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(false));
     let markup = dioxus_ssr::render(&dom);
@@ -713,13 +714,13 @@ async fn a_trusted_sender_opens_with_images_once_the_checks_land() {
     // not trusted yet, so the first frame asks and offers nothing more. Once the checks land off
     // the thread, DMARC passed, and the images load without a press.
     let (_config, dirs) = configured(|settings| {
-        settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
+        settings.reading.remote_images = mail_ui_model::settings::LoadRemoteImages::Trusted;
         settings.reading.trusted_image_senders = vec!["ada@example.test".to_owned()];
     });
     let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
     let first = dioxus_ssr::render(&dom);
     assert!(
-        first.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+        first.contains(mail_ui_model::copy::status::IMAGES_HIDDEN),
         "the first frame waited for the checks, or trusted without them:\n{first}"
     );
     assert!(
@@ -740,7 +741,7 @@ async fn a_trusted_sender_opens_with_images_once_the_checks_land() {
 #[tokio::test]
 async fn an_untrusted_sender_still_asks_and_is_offered_trust() {
     let (_config, dirs) = configured(|settings| {
-        settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
+        settings.reading.remote_images = mail_ui_model::settings::LoadRemoteImages::Trusted;
         settings.reading.trusted_image_senders = vec!["someone@else.example".to_owned()];
     });
     let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
@@ -751,7 +752,7 @@ async fn an_untrusted_sender_still_asks_and_is_offered_trust() {
     );
     let markup = settle(&mut dom, &mut seen).await;
     assert!(
-        markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+        markup.contains(mail_ui_model::copy::status::IMAGES_HIDDEN),
         "a stranger's images loaded:\n{markup}"
     );
     assert!(
@@ -769,7 +770,7 @@ async fn a_trusted_address_that_cannot_be_believed_still_asks() {
     // On the list, but the name claims a brand the address is not, or nothing says DMARC passed:
     // either way the address could be anyone's, so neither loads nor is offered trust.
     let (_config, dirs) = configured(|settings| {
-        settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
+        settings.reading.remote_images = mail_ui_model::settings::LoadRemoteImages::Trusted;
         settings.reading.trusted_image_senders = vec!["ada@example.test".to_owned()];
     });
     let spoofed = Address {
@@ -783,7 +784,7 @@ async fn a_trusted_address_that_cannot_be_believed_still_asks() {
         let (mut dom, mut seen, _dir) = open_configured(&dirs, &from, raw);
         let markup = settle(&mut dom, &mut seen).await;
         assert!(
-            markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+            markup.contains(mail_ui_model::copy::status::IMAGES_HIDDEN),
             "{why}: images loaded on the list's word:\n{markup}"
         );
         assert!(
@@ -791,7 +792,7 @@ async fn a_trusted_address_that_cannot_be_believed_still_asks() {
             "{why}: the blocked URL reached the frame:\n{markup}"
         );
         assert!(
-            markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
+            markup.contains(mail_ui_model::copy::controls::LOAD_IMAGES),
             "{why}: the press for this thread is gone:\n{markup}"
         );
         assert!(
@@ -809,7 +810,7 @@ async fn always_load_from_trusts_the_sender_and_shows_the_images() {
     let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
     let before = settle(&mut dom, &mut seen).await;
     assert!(
-        before.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+        before.contains(mail_ui_model::copy::status::IMAGES_HIDDEN),
         "{before}"
     );
     click(
@@ -824,7 +825,7 @@ async fn always_load_from_trusts_the_sender_and_shows_the_images() {
     );
     assert_eq!(
         settings.reading.remote_images,
-        crate::settings::LoadRemoteImages::Trusted
+        mail_ui_model::settings::LoadRemoteImages::Trusted
     );
     let after = dioxus_ssr::render(&dom);
     assert!(

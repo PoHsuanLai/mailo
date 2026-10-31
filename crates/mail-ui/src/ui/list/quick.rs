@@ -2,7 +2,6 @@
 //! shows under the toolbar. What the toggles mean is [`crate::ui::quick`]; this draws them and
 //! turns them.
 
-use crate::ui::copy;
 use crate::ui::press::on_primary;
 use crate::ui::quick::{Row, Toggle};
 use crate::ui::view::Shell;
@@ -11,6 +10,7 @@ use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::chip::{Chip, ChipVariant};
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_ui_model::copy;
 
 /// Turn `toggle` on or off, from the first page of what it leaves.
 pub(in crate::ui) fn toggle(mut shell: Signal<Shell>, mut pages: Signal<u32>, toggle: Toggle) {

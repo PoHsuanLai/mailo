@@ -192,7 +192,7 @@ impl DesktopSettings {
 /// reads (`ds_settings::use_environment`), so a theme, accent or motion change restyles this
 /// window while it runs; the person's own `style.css`, watched the same way and drawn after
 /// quire's and mailo's sheets unless "Use my styles" is off (CONSUMING.md section 12); and mailo's own settings
-/// (`crate::settings`), watched so a change made in the desktop's Settings app reaches the window. `main` migrated mailo's old appearance
+/// (`mail_ui_model::settings`), watched so a change made in the desktop's Settings app reaches the window. `main` migrated mailo's old appearance
 /// file into the desktop's before the window opened (`appearance::adopt`). Only the launched
 /// window watches; a test renders `App` (or [`Shell`]) without this and never touches the real
 /// config directory.

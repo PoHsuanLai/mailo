@@ -13,7 +13,6 @@ pub(super) use further::FurtherMenus;
 use super::menu::{Floating, MenuItem, MenuKey, Right, anchor_for, menu_key, palette_groups};
 use super::motion::{act, act_all};
 use super::picks::{label_all, with_selection};
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -28,6 +27,7 @@ use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_client::when::Clock;
 use mail_domain::*;
+use mail_ui_model::copy;
 
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
 const SNOOZE: &[(&str, &str)] = &[

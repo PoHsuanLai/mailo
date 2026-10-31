@@ -5137,6 +5137,7 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mail-ui",
+ "mail-ui-model",
  "mailo-crypto",
  "mailo-domain",
  "mailo-mime",
@@ -5182,7 +5183,7 @@ dependencies = [
  "mail-os",
  "mail-runtime",
  "mail-store",
- "mail-ui",
+ "mail-ui-model",
  "mailo-archive",
  "mailo-crypto",
  "mailo-domain",
@@ -5298,6 +5299,7 @@ dependencies = [
  "mail-edge",
  "mail-store",
  "mail-ui",
+ "mail-ui-model",
  "mailo-domain",
  "porter-core",
  "serde",
@@ -5447,6 +5449,7 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mail-ui",
+ "mail-ui-model",
  "mailo-archive",
  "mailo-crypto",
  "mailo-domain",
@@ -5478,6 +5481,35 @@ dependencies = [
  "uuid",
  "webbrowser",
  "zbus",
+]
+
+[[package]]
+name = "mail-ui-model"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "ds-core",
+ "ds-settings",
+ "log",
+ "mail-client",
+ "mail-core",
+ "mailo-domain",
+ "mailo-reader",
+ "porter-capability",
+ "porter-client-inproc",
+ "porter-core",
+ "porter-ids",
+ "porter-provider",
+ "porter-secrets",
+ "porter-sheet",
+ "porter-wire",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "url",
+ "uuid",
 ]
 
 [[package]]

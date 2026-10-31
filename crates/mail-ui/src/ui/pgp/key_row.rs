@@ -25,9 +25,9 @@ use super::actions::{Act, Opened, RowActions, line};
 use super::certs::CertJob;
 use super::keys::Job;
 use super::{Busy, Passphrase, cert_short, short, who};
-use crate::ui::copy::menus;
 use mail_client::password::Password;
 use mail_client::pgp::WithSecret;
+use mail_ui_model::copy::menus;
 
 /// A question the page is asking before it acts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,7 +146,7 @@ pub(in crate::ui) fn KeyRow(
         Act::Trust | Act::Distrust => {}
     };
     let actions = rsx! {
-        RowActions { label: crate::ui::copy::aria::actions_for(&id.to_string()), items, opened, onpick }
+        RowActions { label: mail_ui_model::copy::aria::actions_for(&id.to_string()), items, opened, onpick }
     };
     let title = TextLine::Runs(vec![
         TextRun::new(name, RunTone::Strong),
@@ -218,7 +218,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             rsx! {
                 Alert {
                     title: format!("Delete {id}?"),
-                    message: Some(TextLine::from(format!("Its secret key is deleted too. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
+                    message: Some(TextLine::from(format!("Its secret key is deleted too. {}", mail_ui_model::copy::confirm::CANT_BE_UNDONE))),
                     style: AlertStyle::Critical,
                     buttons: vec![
                         AlertButton::new("Delete", AlertRole::Destructive, EventHandler::new(move |()| {
@@ -238,7 +238,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             rsx! {
                 Alert {
                     title: format!("Delete {id}?"),
-                    message: Some(TextLine::from(format!("Its private key is deleted too. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
+                    message: Some(TextLine::from(format!("Its private key is deleted too. {}", mail_ui_model::copy::confirm::CANT_BE_UNDONE))),
                     style: AlertStyle::Critical,
                     buttons: vec![
                         AlertButton::new("Delete", AlertRole::Destructive, EventHandler::new(move |()| {

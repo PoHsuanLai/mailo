@@ -7,12 +7,12 @@
 
 use crate::ui::appearance::WindowDirs;
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::data::AccountRow;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use mail_client::offline::{self, Keep};
+use mail_ui_model::copy;
 
 /// The account's switch. Mail kept only here has no server to keep a copy of, so its page has
 /// none (the caller's to know).

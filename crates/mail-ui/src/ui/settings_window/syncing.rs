@@ -8,7 +8,6 @@
 
 use crate::ui::appearance::WindowDirs;
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::data::AccountRow;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
@@ -19,6 +18,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::offline::{self, Every, Kept, Remove, Window};
 use mail_domain::Incoming;
+use mail_ui_model::copy;
 
 /// What Check for New Mail calls `every`.
 pub(super) fn every_label(every: Every) -> String {

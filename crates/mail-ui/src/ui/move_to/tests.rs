@@ -261,10 +261,11 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     assert_eq!(subjects.len(), 2, "the folder lists both conversations");
     let opened = open_row_menu(&mut dom, &listed, &subjects[0]);
     assert!(
-        menu_names(&dioxus_ssr::render(&dom)).contains(&crate::ui::copy::menus::MOVE_TO.to_owned()),
+        menu_names(&dioxus_ssr::render(&dom))
+            .contains(&mail_ui_model::copy::menus::MOVE_TO.to_owned()),
         "the row's menu offers no Move to…"
     );
-    let picked = pick_named(&mut dom, &opened, crate::ui::copy::menus::MOVE_TO).await;
+    let picked = pick_named(&mut dom, &opened, mail_ui_model::copy::menus::MOVE_TO).await;
     let menu = floated(&mut dom, picked).await;
     let page = dioxus_ssr::render(&dom);
     // quire's pick list floats where the row's menu stood, in the root's overlay, not in the row.

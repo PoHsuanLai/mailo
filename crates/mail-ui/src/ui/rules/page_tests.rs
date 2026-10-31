@@ -19,13 +19,13 @@ use super::away_tests::{answering, own_server};
 use super::list::RunProgress;
 use super::server::{AwaySetter, Pusher, reach};
 use super::work::{self, Draft};
-use crate::ui::copy;
 use crate::ui::data::{AccountRow, account_rows};
 use crate::ui::files::Phase;
 use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, drain_seen, rebuild_into, right_click, type_into,
 };
 use crate::ui::view::{RulesAt, Shell, VacationAt};
+use mail_ui_model::copy;
 
 /// The first render, then the ones after it, keeping every attribute they set: what floats in
 /// quire's overlay, and a page the stack pushes, are drawn the frames after the one that asked

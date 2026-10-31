@@ -7,8 +7,8 @@
 //! same as opening one always did: on the server too, where the server keeps flags, with no
 //! toast and no undo.
 
-use crate::settings::{MarkRead, MarkReadDelay};
 use mail_domain::ThreadId;
+use mail_ui_model::settings::{MarkRead, MarkReadDelay};
 use std::time::{Duration, Instant};
 
 /// What showing a conversation asks of the reader.

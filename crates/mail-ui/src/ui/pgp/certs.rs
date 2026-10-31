@@ -28,10 +28,10 @@ use super::actions::{Act, Opened, RowActions, line};
 use super::key_row::Confirm;
 use super::keys::{Done, Job, write};
 use super::{Busy, Seams, cert_short, whose};
-use crate::ui::copy::menus;
 use mail_client::password::Password;
 use mail_client::pgp::WithSecret;
 use mail_client::smime::SmimeError;
+use mail_ui_model::copy::menus;
 
 /// The certificates in the order the sheet lists them: the user's own — those whose private
 /// key the keyring holds — first, then everyone else's, each group as the client orders it.
@@ -191,7 +191,7 @@ pub(super) fn cert_items(
         rsx! {
             Row {
                 leading: add_mark(),
-                title: crate::ui::copy::fields::SMIME_CERTIFICATE,
+                title: mail_ui_model::copy::fields::SMIME_CERTIFICATE,
                 detail: Some(TextLine::from("A certificate, or your identity as a PKCS#12 file.")),
                 size: RowSize::Settings,
                 accessory: Accessory::Slot(rsx! {
@@ -296,7 +296,7 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
         Act::ExportSecret | Act::Verify => {}
     };
     let actions = rsx! {
-        RowActions { label: crate::ui::copy::aria::actions_for(&id.to_string()), items, opened, onpick }
+        RowActions { label: mail_ui_model::copy::aria::actions_for(&id.to_string()), items, opened, onpick }
     };
     let title = TextLine::Runs(vec![
         TextRun::new(cert.subject.clone(), RunTone::Strong),

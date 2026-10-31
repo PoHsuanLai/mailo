@@ -7,7 +7,7 @@
 use mail_domain::*;
 
 use super::{grouped, short, who};
-use crate::ui::copy::status::protection as words;
+use mail_ui_model::copy::status::protection as words;
 
 /// How a line about a message's protection is drawn. A bad signature is the one that must be
 /// impossible to miss; a signature nobody can check must not look like a good one.

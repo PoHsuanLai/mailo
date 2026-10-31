@@ -19,8 +19,8 @@ use mail_domain::human_size;
 
 use super::super::menu::{Floating, MenuItem, Right};
 use super::page::{Float, Guard, Page};
-use crate::ui::copy;
 use crate::ui::press::on_primary;
+use mail_ui_model::copy;
 
 /// What the page's files were found to weigh, and the most its account sends.
 #[derive(Debug, Clone, PartialEq, Eq)]

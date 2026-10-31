@@ -21,9 +21,7 @@
 //! in through the desktop's accountd (a "Continue as" offer) is planned, not here yet.
 
 mod direct;
-mod host;
 mod map;
-mod provider;
 mod size;
 mod window;
 
@@ -32,7 +30,6 @@ pub(in crate::ui) use direct::{
     picked, retry,
 };
 pub use direct::{DirectSignIns, SignInDirectly};
-pub use provider::{AddError, AddFault, Request, Seams};
 pub use window::{Browse, Opened, Wiring, add_account_root};
 
 use std::cell::RefCell;
@@ -142,7 +139,7 @@ fn quire(ask: Ask) {
         Err(why) => {
             log::warn!("the Add Account window would not open: {why}");
             crate::ui::motion::tell(
-                crate::ui::copy::toasts::would_not_open(TITLE),
+                mail_ui_model::copy::toasts::would_not_open(TITLE),
                 crate::ui::motion::Follow::Nothing,
             );
         }
@@ -152,10 +149,6 @@ fn quire(ask: Ask) {
 #[cfg(test)]
 mod direct_tests;
 #[cfg(test)]
-mod host_tests;
-#[cfg(test)]
 mod map_tests;
-#[cfg(test)]
-mod provider_tests;
 #[cfg(test)]
 mod size_tests;
