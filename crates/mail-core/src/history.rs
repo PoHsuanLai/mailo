@@ -6,9 +6,9 @@
 //! when a conversation is shown, and the store forgets the old ones in the same write.
 
 use crate::error::Logged;
-use crate::follow_up::in_scope;
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{Filter, ThreadId, ThreadSummary};
+use mail_logic::follow_up::in_scope;
 use mail_store::{SqliteStore, Store};
 
 /// How long a conversation stays in History after it was last opened.

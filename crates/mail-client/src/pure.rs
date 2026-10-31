@@ -75,9 +75,6 @@ pub mod export {
 pub mod folder {
     pub use mail_core::folder::Refusal;
 }
-pub mod follow_up {
-    pub use mail_core::follow_up::{CHOICES, due, returned_words};
-}
 pub mod formats {
     pub use mail_core::formats::{Writer, writer_named, writers};
 }

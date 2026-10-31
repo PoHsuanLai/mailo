@@ -1,10 +1,12 @@
 use super::*;
 use crate::support_tests::account;
+use chrono::TimeZone as _;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
     Address, Body, Change, ChangeId, MailboxRole, MessageId, MessageKey, Patch, ReadState, Star,
 };
 use mail_domain::{Draft, SendState};
+use mail_logic::follow_up::{on_top, returned_words};
 use std::sync::Mutex;
 
 const ME: &str = "me@example.test";
@@ -75,41 +77,6 @@ fn put(store: &SqliteStore, message: Message) {
 
 fn state(store: &SqliteStore, t: ThreadId) -> FollowUp {
     store.thread(t).unwrap().summary.follow_up
-}
-
-#[test]
-fn the_named_times_and_a_typed_one_resolve_from_when_it_leaves() {
-    // Monday noon in UTC.
-    let from = day(0);
-    let cases: [(&str, Result<DateTime<Utc>, ()>); 7] = [
-        (
-            "tomorrow",
-            Ok(Utc.with_ymd_and_hms(2026, 9, 29, 9, 0, 0).unwrap()),
-        ),
-        (
-            "three-days",
-            Ok(Utc.with_ymd_and_hms(2026, 10, 1, 9, 0, 0).unwrap()),
-        ),
-        (
-            "next-week",
-            Ok(Utc.with_ymd_and_hms(2026, 10, 5, 9, 0, 0).unwrap()),
-        ),
-        ("+2h", Ok(from + TimeDelta::hours(2))),
-        (
-            "2026-10-02 17:30",
-            Ok(Utc.with_ymd_and_hms(2026, 10, 2, 17, 30, 0).unwrap()),
-        ),
-        // Gone already, and not a time at all.
-        ("2026-09-01", Err(())),
-        ("", Err(())),
-    ];
-    for (choice, want) in cases {
-        let got = due(choice, from, &Utc, mail_logic::when::Clock::H24);
-        match want {
-            Ok(at) => assert_eq!(got, Ok(at), "{choice:?}"),
-            Err(()) => assert!(got.is_err(), "{choice:?} should be refused: {got:?}"),
-        }
-    }
 }
 
 #[test]

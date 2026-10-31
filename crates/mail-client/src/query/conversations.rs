@@ -109,7 +109,7 @@ impl Asked for Conversations {
                     ..Found::default()
                 }
             }
-            Conversations::WithReturned { query, scope } => listed(mail_core::follow_up::on_top(
+            Conversations::WithReturned { query, scope } => listed(mail_logic::follow_up::on_top(
                 mail_core::follow_up::returned(store, scope.as_ref(), now),
                 matching(store, query, now)?,
             )),

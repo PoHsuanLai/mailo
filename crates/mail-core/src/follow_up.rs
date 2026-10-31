@@ -24,85 +24,22 @@
 
 use crate::error::{CoreError, Logged};
 use crate::notify::{Notification, Notifier, Opens, Own};
-use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use mail_domain::{
-    Filter, FollowUp, MailboxRole, MatchCtx, Message, Op, Snooze, ThreadId, ThreadSummary,
-};
-use mail_logic::snooze::TimeError;
+use chrono::{DateTime, TimeDelta, Utc};
+use mail_domain::{Filter, FollowUp, MailboxRole, Message, Op, Snooze, ThreadId, ThreadSummary};
+use mail_logic::follow_up::{in_scope, remind};
 use mail_store::{SqliteStore, Store};
 
 use held::landed;
 pub use held::{Held, after_queue, held, hold, release};
 
-/// The times a reminder offers by name, as `(key, what it says)`. A typed time is the rest.
-pub const CHOICES: [(&str, &str); 3] = [
-    ("tomorrow", "Tomorrow morning"),
-    ("three-days", "In 3 days"),
-    ("next-week", "Next week"),
-];
-
 /// How long after it was due a composer's reminder still waits for its message to be found.
 const STALE: TimeDelta = TimeDelta::days(7);
-
-/// The instant a reminder chosen as `choice` comes due, counted from `from` in `zone`: one of
-/// [`CHOICES`]' keys, or a time typed the way snooze reads one (`fri 17:00`, `+2h`,
-/// `2026-10-02`). A time that is not after `from` is refused, in words (its hour as `clock`
-/// writes it): a reminder for a moment already gone would come back before anyone could answer.
-pub fn due<Tz: TimeZone>(
-    choice: &str,
-    from: DateTime<Utc>,
-    zone: &Tz,
-    clock: mail_logic::when::Clock,
-) -> Result<DateTime<Utc>, TimeError>
-where
-    Tz::Offset: std::fmt::Display,
-{
-    let phrase = match choice {
-        "tomorrow" => "tomorrow".to_owned(),
-        // Three mornings on: the day someone can be expected to have answered by.
-        "three-days" => {
-            let day = from.with_timezone(zone).date_naive() + TimeDelta::days(3);
-            day.format("%Y-%m-%d").to_string()
-        }
-        "next-week" => "monday".to_owned(),
-        typed => typed.trim().to_owned(),
-    };
-    if phrase.is_empty() {
-        return Err(TimeError::Blank);
-    }
-    let at = mail_logic::snooze::snooze_until(&phrase, from, zone)?;
-    if at <= from {
-        return Err(TimeError::Passed {
-            stamp: mail_logic::when::stamp(at, zone, mail_logic::when::Stamp::Full, clock),
-        });
-    }
-    Ok(at)
-}
 
 /// Whether anyone other than the user has written in `messages` since `set`.
 pub fn replied(messages: &[Message], own: &Own, set: DateTime<Utc>) -> bool {
     messages
         .iter()
         .any(|message| message.date > set && !own.includes(&message.from.email))
-}
-
-/// Whether a conversation belongs where the list is narrowed to.
-pub(crate) fn in_scope(
-    summary: &ThreadSummary,
-    scope: Option<&Filter>,
-    now: DateTime<Utc>,
-) -> bool {
-    scope.is_none_or(|filter| {
-        filter.fit(&MatchCtx {
-            summary,
-            corpus: None,
-            folders: &[],
-            sizes: &[],
-            cc: &[],
-            vips: &[],
-            now,
-        })
-    })
 }
 
 /// The conversations whose reminder came back with no reply, most recently returned first, for
@@ -145,31 +82,6 @@ pub fn waiting(
         .into_iter()
         .filter(|summary| in_scope(summary, scope, now))
         .collect()
-}
-
-/// `top` above `rows`, each conversation once.
-pub fn on_top(top: Vec<ThreadSummary>, rows: Vec<ThreadSummary>) -> Vec<ThreadSummary> {
-    let ids: Vec<ThreadId> = top.iter().map(|summary| summary.id).collect();
-    top.into_iter()
-        .chain(
-            rows.into_iter()
-                .filter(|summary| !ids.contains(&summary.id)),
-        )
-        .collect()
-}
-
-/// What a row says about its reminder, when it says anything: the one words a returned
-/// conversation shows, beside nothing for a reminder still waiting.
-pub fn returned_words(follow_up: &FollowUp) -> Option<&'static str> {
-    match follow_up {
-        FollowUp::Returned { .. } => Some("No reply yet"),
-        FollowUp::Until { .. } | FollowUp::Inactive => None,
-    }
-}
-
-/// The op a menu applies to set a reminder at `at`, asked for at `set`.
-pub fn remind(at: DateTime<Utc>, set: DateTime<Utc>) -> Op {
-    Op::SetFollowUp(FollowUp::Until { at, set })
 }
 
 /// What one [`sweep`] did.

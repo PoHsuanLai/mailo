@@ -289,7 +289,7 @@ pub(super) fn ListRow(
 /// files.
 #[component]
 fn Tags(summary: ThreadSummary, chips: Vec<String>, shown: bool) -> Element {
-    let no_reply = mail_client::follow_up::returned_words(&summary.follow_up);
+    let no_reply = mail_logic::follow_up::returned_words(&summary.follow_up);
     let muted = summary.mute == Mute::Muted;
     let files = matches!(summary.attachments, Attachments::Present { .. });
     rsx! {
