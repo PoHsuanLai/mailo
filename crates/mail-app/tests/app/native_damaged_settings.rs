@@ -9,8 +9,8 @@ use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::{ConfigRoot, SystemPrefsSource};
 use mail_core::SqliteStore;
-use mail_ui::ui::appearance::WindowDirs;
 use mail_ui::ui::native::{DesktopSettings, Found, damaged_files};
+use mail_ui_kit::appearance::WindowDirs;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -55,7 +55,7 @@ fn a_damaged_settings_file_is_asked_about_and_kept_aside_before_the_window_opens
     assert_eq!(found.len(), 2, "{found:?}");
     let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(Arc::new(mail), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         Some(dirs.clone()),
         mail_ui::ui::ask::Open::raise(),

@@ -4,8 +4,8 @@
 //! empty list, and which one it is decides whether the person waits or acts.
 
 use super::need::Need;
-use crate::ui::view::Nothing;
 use mail_client::fetch::{First, Link, Pause};
+use mail_ui_kit::view::Nothing;
 
 /// Whether the list has any rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

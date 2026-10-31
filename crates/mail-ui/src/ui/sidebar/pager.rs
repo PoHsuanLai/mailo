@@ -13,7 +13,6 @@
 //! stands on; under Reduced motion quire's stylesheet makes it a fade.
 
 use super::swipe::{DETENT_PX, Room, SpaceSwipe, SwipeIn, SwipeOut, Toward, Turn, drawn};
-use crate::ui::space::{Handle, SpaceId};
 use dioxus::core::queue_effect;
 use dioxus::prelude::*;
 use ds::base::geometry::units::{Point, Px, Rect};
@@ -29,6 +28,7 @@ use ds::motion::spring_spec::SpringSpec;
 use ds::motion::timeline::spring::PxPerUnit;
 use ds::motion::use_spring::{SpringMotion, use_spring_motion};
 use ds::style::appearance::motion::MotionLevel;
+use mail_ui_kit::space::{Handle, SpaceId};
 
 /// What the last render drew of the carried content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

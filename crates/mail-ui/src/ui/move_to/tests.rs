@@ -20,7 +20,7 @@ use crate::ui::fixtures::{
     menu_names, open_row_menu, pick_named, pointer, rebuild_into, row_named,
 };
 use crate::ui::folder_open::Fetcher;
-use crate::ui::view::folder_filter;
+use mail_ui_kit::view::folder_filter;
 
 fn acct_imap() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"))

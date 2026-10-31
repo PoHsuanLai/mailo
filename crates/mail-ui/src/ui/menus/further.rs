@@ -5,11 +5,11 @@
 use super::redirect::RedirectMenu;
 use super::{LabelMenu, SnoozeMenu};
 use crate::ui::move_to::{Gesture, MoveMenu};
-use crate::ui::view::{Further, Opened, Shell};
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::ThreadSummary;
+use mail_ui_kit::view::{Further, Opened, Shell};
 
 /// The further menu open over `summary`, when `opened` is where it was asked for.
 #[component]

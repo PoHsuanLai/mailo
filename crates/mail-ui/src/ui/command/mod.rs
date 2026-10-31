@@ -29,9 +29,9 @@ pub(in crate::ui) use items::avatar_color;
 pub(in crate::ui) use spotlight::{FIELD, LABEL};
 pub(in crate::ui) use spotlight::{Spotlight, summon};
 
-use crate::ui::view::{Bar, PageMenu, Shell};
 use dioxus::prelude::*;
 use items::Pick;
+use mail_ui_kit::view::{Bar, PageMenu, Shell};
 use sections::Choice;
 use spotlight::Ctx;
 
@@ -39,7 +39,7 @@ use spotlight::Ctx;
 fn close(mut shell: Signal<Shell>) {
     shell.write().bar = Bar::Closed;
     shell.write().page_menu = PageMenu::Closed;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// The search the list showed before a command's name was typed over it, back in the list: the
@@ -92,7 +92,7 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
         Choice::Space(index) => {
             restore(shell, pages);
             close(shell);
-            if let Some(handle) = try_consume_context::<crate::ui::space::Handle>() {
+            if let Some(handle) = try_consume_context::<mail_ui_kit::space::Handle>() {
                 let _ = handle.switch_index(index);
             }
         }

@@ -7,7 +7,6 @@ use super::{
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::fixtures::{click, settle_for};
 use crate::ui::reading::Reader;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_core::message::{Looks, Read};
@@ -15,6 +14,7 @@ use mail_core::receipt::ReceiptState;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::settings::{MailSettings, MarkRead, ReadReceipts};
 use std::sync::Arc;
 use std::time::Duration;

@@ -4,7 +4,7 @@
 //! as well as `main`.
 
 use mail_core::when::Clock;
-use mail_ui::ui::TRACE;
+use mail_ui_kit::TRACE;
 
 /// The profile named by a leading `--profile <x>` or `--profile=<x>`, and the arguments without
 /// it, so everything that reads the command line afterwards reads what it always read.
@@ -55,7 +55,7 @@ pub fn clock() -> Clock {
         .value
         .region
         .hours;
-    mail_ui::ui::clock_from(hours.resolve(mail_ui::ui::time_locale()))
+    mail_ui_kit::clock::clock_from(hours.resolve(mail_ui_kit::clock::time_locale()))
 }
 
 /// Libraries whose warnings are about the input they were handed, not about a fault: an HTML
@@ -187,7 +187,7 @@ mod tests {
         for (hours, all, time, lang, want) in CASES {
             let locale = time_locale(*all, *time, *lang);
             assert_eq!(
-                mail_ui::ui::clock_from(hours.resolve(locale)),
+                mail_ui_kit::clock::clock_from(hours.resolve(locale)),
                 *want,
                 "{hours:?} {all:?} {time:?} {lang:?}"
             );

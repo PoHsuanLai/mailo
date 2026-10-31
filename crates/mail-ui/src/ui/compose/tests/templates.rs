@@ -26,7 +26,7 @@ fn slash(page: &mut Page) {
     );
 }
 
-fn keys(items: &[crate::ui::menu::MenuItem]) -> Vec<&str> {
+fn keys(items: &[mail_ui_kit::menu::MenuItem]) -> Vec<&str> {
     items.iter().map(|item| item.key.as_str()).collect()
 }
 

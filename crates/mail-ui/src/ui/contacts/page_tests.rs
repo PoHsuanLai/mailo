@@ -4,8 +4,8 @@
 use super::key_of;
 use crate::ui::fixtures::{click, drain_seen, type_into, work};
 use crate::ui::settings_window::tests::opened_on;
-use crate::ui::view::PageId;
 use mail_core::Store;
+use mail_ui_kit::view::PageId;
 use mail_ui_model::copy;
 
 #[test]

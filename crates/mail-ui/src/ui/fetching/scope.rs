@@ -1,6 +1,6 @@
 //! Which accounts a press of Sync, and the line under the list's title, are about.
 
-use crate::ui::view::Shell;
+use mail_ui_kit::view::Shell;
 use porter_core::AccountId;
 use std::collections::BTreeSet;
 
@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 /// on this computer.
 pub(super) fn in_scope(
     with_links: &BTreeSet<AccountId>,
-    scope: &crate::ui::space::Scope,
+    scope: &mail_ui_kit::space::Scope,
 ) -> Vec<AccountId> {
     with_links
         .iter()

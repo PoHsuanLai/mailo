@@ -88,11 +88,11 @@ fn add_pop(store: &SqliteStore) {
 fn drawn(store: &Arc<SqliteStore>) -> String {
     arrange(
         &load(
-            &crate::ui::live::read_now(
+            &mail_ui_kit::live::read_now(
                 &crate::ui::fixtures::client(store),
                 mail_client::query::Accounts,
             ),
-            &crate::ui::space::Scope::Accounts(vec![acct_imap()]),
+            &mail_ui_kit::space::Scope::Accounts(vec![acct_imap()]),
         ),
         Show::Followed,
     )

@@ -1,8 +1,8 @@
 use super::super::app::App;
 use crate::ui::fixtures::empty;
-use crate::ui::space::{Mail, built};
 use dioxus::prelude::*;
 use ds::prelude::SpaceLook;
+use mail_ui_kit::space::{Mail, built};
 
 #[tokio::test]
 async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {

@@ -14,7 +14,7 @@ use porter_core::AccountId;
 
 use super::away::{self, Away, Reply};
 use super::server::{Push, put, reach};
-use crate::ui::data::{AccountRow, account_rows};
+use mail_ui_kit::data::{AccountRow, account_rows};
 
 /// A mail server of the user's own, reached with a password: one that offers ManageSieve.
 pub(super) fn acct_own() -> AccountId {

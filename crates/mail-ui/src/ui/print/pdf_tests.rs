@@ -6,13 +6,13 @@ use super::native_print::{BUSY, Dated, Printer, Sources, made, print_through, sa
 use super::paper::{self, Cjk, Families, PICTURES_NOTE, Paper};
 use super::{Job, build};
 use crate::ui::fixtures::{acct_account, seeded};
-use crate::ui::original::{Consent, FetchImage, Got, ReaderNet};
 use chrono::TimeZone;
 use ds_blitz::{PageSize, PrintError, PrintOutcome};
 use mail_core::html_document::Printed;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_reader::{Pages, Script};
+use mail_ui_kit::original::{Consent, FetchImage, Got, ReaderNet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 

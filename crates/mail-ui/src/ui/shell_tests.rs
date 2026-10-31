@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use mail_core::SqliteStore;
 use std::sync::Arc;
 
-fn page_of(store: Arc<SqliteStore>, dirs: Option<crate::ui::appearance::WindowDirs>) -> String {
+fn page_of(store: Arc<SqliteStore>, dirs: Option<mail_ui_kit::appearance::WindowDirs>) -> String {
     let mut dom = VirtualDom::new(App).with_root_context(crate::ui::fixtures::client(&store));
     if let Some(dirs) = dirs {
         dom = dom.with_root_context(dirs);
@@ -276,7 +276,7 @@ async fn scheduled_is_in_the_sidebar_only_while_a_send_waits_in_the_space() {
     let (store, _dir) = seeded();
     async fn sidebar(
         store: &std::sync::Arc<mail_core::SqliteStore>,
-        spaces: crate::ui::space::Spaces,
+        spaces: mail_ui_kit::space::Spaces,
     ) -> bool {
         let mut dom = VirtualDom::new(App)
             .with_root_context(crate::ui::fixtures::client(store))
@@ -300,7 +300,7 @@ async fn scheduled_is_in_the_sidebar_only_while_a_send_waits_in_the_space() {
     let mine = super::fixtures::acct_account();
     let theirs = mail_domain::id::new_account_id();
     let over = |account: &porter_core::AccountId| {
-        crate::ui::space::first_run(std::slice::from_ref(account))
+        mail_ui_kit::space::first_run(std::slice::from_ref(account))
     };
     assert!(
         !sidebar(&store, over(&mine)).await,
@@ -328,7 +328,7 @@ async fn scheduled_is_in_the_sidebar_only_while_a_send_waits_in_the_space() {
     assert!(
         crate::ui::compose::scheduled(
             &crate::ui::fixtures::client(&store),
-            &crate::ui::space::Scope::Accounts(vec![theirs])
+            &mail_ui_kit::space::Scope::Accounts(vec![theirs])
         )
         .is_empty(),
         "another Space's message would draw Scheduled"

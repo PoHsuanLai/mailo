@@ -19,8 +19,8 @@ use mail_client::prelude::CoreError;
 
 use super::life;
 use super::page::{Guard, Page};
-use crate::ui::press::on_primary;
 use mail_client::compose::ATTACHMENT_BUDGET;
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::settings::MessageFormat;
 
 /// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
@@ -50,7 +50,7 @@ pub(super) fn Attach(page: Signal<Page>, label: &'static str, bezel: Bezel) -> E
 /// Open the file picker; what is chosen is attached. The foot's Attach and `/` › Attachment both
 /// come here.
 pub(super) fn choose(page: Signal<Page>) {
-    crate::ui::pick::choose(crate::ui::pick::Ask::Attachments, None, move |paths| {
+    mail_ui_kit::pick::choose(mail_ui_kit::pick::Ask::Attachments, None, move |paths| {
         take(
             page,
             paths.into_iter().map(|path| (path, Lands::Files)).collect(),
@@ -60,7 +60,7 @@ pub(super) fn choose(page: Signal<Page>) {
 
 /// Open the file picker for pictures; each chosen is shown in the body at the caret: `/` › Image.
 pub(super) fn choose_image(page: Signal<Page>) {
-    crate::ui::pick::choose(crate::ui::pick::Ask::Images, None, move |paths| {
+    mail_ui_kit::pick::choose(mail_ui_kit::pick::Ask::Images, None, move |paths| {
         take(
             page,
             paths.into_iter().map(|path| (path, Lands::Body)).collect(),
@@ -79,7 +79,7 @@ pub(super) fn use_drop_target(page: Signal<Page>) -> FileDropHandle {
             .into_iter()
             .map(|path| {
                 let picture =
-                    mail_client::compose::shows_inline(&crate::ui::pick::file_name(&path));
+                    mail_client::compose::shows_inline(&mail_ui_kit::pick::file_name(&path));
                 (path, if picture { Lands::Body } else { Lands::Files })
             })
             .collect();
@@ -88,7 +88,7 @@ pub(super) fn use_drop_target(page: Signal<Page>) -> FileDropHandle {
 }
 
 /// The picture on the clipboard, `png`, shown in the body at the caret: a paste the surface
-/// brought nothing for (`crate::ui::pasted_image`).
+/// brought nothing for (`mail_ui_kit::pasted_image`).
 pub(super) fn paste_image(mut page: Signal<Page>, png: Vec<u8>) {
     let name = mail_ui_model::copy::fields::PASTED_IMAGE;
     let lands = shown_in(page.peek().format, Lands::Body);
@@ -141,7 +141,7 @@ impl BodyRefused {
             CoreError::NotAnInlineImage { .. } | CoreError::InlineImagesTooBig { .. } => {
                 BodyRefused::AsFile
             }
-            other => BodyRefused::Said(crate::ui::remedy::told(other)),
+            other => BodyRefused::Said(mail_ui_kit::remedy::told(other)),
         }
     }
 }
@@ -188,7 +188,7 @@ fn take(mut page: Signal<Page>, paths: Vec<(PathBuf, Lands)>) {
     spawn(async move {
         let mut refused = Vec::new();
         for (path, lands) in paths {
-            let name = crate::ui::pick::file_name(&path);
+            let name = mail_ui_kit::pick::file_name(&path);
             let picked = tokio::task::spawn_blocking(move || read_picked(&path))
                 .await
                 .unwrap_or(Picked::Unreadable);
@@ -230,14 +230,14 @@ fn take(mut page: Signal<Page>, paths: Vec<(PathBuf, Lands)>) {
 
 /// Store `bytes`, named `name`, on the draft as a file in the strip at the body's end.
 fn as_file(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), String> {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let draft = page.peek().draft;
     let now = chrono::Utc::now();
     let stored = life::save(&client, &mut page.write(), now).and_then(|_| {
         client
             .compose()
             .attach_bytes(draft, name, bytes, now)
-            .map_err(crate::ui::remedy::told)
+            .map_err(mail_ui_kit::remedy::told)
     })?;
     let mut write = page.write();
     write.attached = client.compose().attached_to(&stored);
@@ -249,7 +249,7 @@ fn as_file(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), Strin
 /// as one undo step. The page is saved first, so the client's draft is the page's when the
 /// picture is added to it. A picture the body cannot take is [`BodyRefused::AsFile`].
 fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), BodyRefused> {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let draft = page.peek().draft;
     let now = chrono::Utc::now();
     life::save(&client, &mut page.write(), now).map_err(BodyRefused::Said)?;

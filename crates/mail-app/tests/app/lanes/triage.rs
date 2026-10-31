@@ -9,7 +9,7 @@ use mail_core::Store;
 use mail_domain::{
     Change, ChangeId, Hue, MailboxRole, Mute, Patch, ProtoOp, Snooze, Star, ThreadSummary,
 };
-use mail_ui::ui::bin::{Bin, Destroying, Reach, words};
+use mail_ui_kit::bin::{Bin, Destroying, Reach, words};
 use mail_ui_model::copy;
 
 use super::drive::{Drive, Key, PRIMARY};

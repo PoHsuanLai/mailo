@@ -21,8 +21,8 @@ use ds::style::icon::render::Glyph;
 use mail_client::Client;
 use mail_domain::MessageId;
 
-use crate::ui::view::Shell;
 use mail_client::attachment_image::{self, Kind, Picture, Unavailable};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// The thumbnail's room, in logical pixels.
@@ -141,7 +141,7 @@ pub(super) fn Thumb(
     shell: Signal<Shell>,
 ) -> Element {
     let shown = use_resource(move || {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         async move {
             tokio::task::spawn_blocking(move || thumbnail(&client, message, index))
                 .await

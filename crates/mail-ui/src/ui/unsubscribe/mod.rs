@@ -14,7 +14,6 @@ mod head;
 
 pub(in crate::ui) use head::{Confirm, Lookout, Phase};
 
-use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
@@ -24,6 +23,7 @@ use mail_client::unsubscribe::{Found, Outcome};
 use mail_client::{Acted, Perform};
 use mail_domain::*;
 use mail_mime::Unsubscribe;
+use mail_ui_kit::view::Shell;
 
 // A thread's way out of its list, with the name the alert and the toast call the list by.
 pub(in crate::ui) use mail_client::message::Offer;
@@ -181,15 +181,15 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
         .into_iter()
         .map(|thread| (thread, Op::Archive))
         .collect();
-    let motion = super::motion::motion();
-    let gesture = super::motion::begin(motion);
-    let ticket = crate::ui::live::client().act(Perform {
+    let motion = mail_ui_kit::motion::motion();
+    let gesture = mail_ui_kit::motion::begin(motion);
+    let ticket = mail_ui_kit::live::client().act(Perform {
         ops,
         alone: Vec::new(),
         then_erase: false,
     });
     let list = list.to_owned();
-    super::motion::when_done(ticket, move |acted| {
+    mail_ui_kit::motion::when_done(ticket, move |acted| {
         let undone: Vec<Undo> = match acted {
             Some(Acted { done, .. }) => done.into_iter().map(|(.., undo)| undo).collect(),
             None => Vec::new(),
@@ -200,8 +200,8 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
             1 => format!("Archived 1 conversation from {list}"),
             n => format!("Archived {n} conversations from {list}"),
         };
-        let kept = super::motion::record_through(motion, shell, undone, text);
-        super::motion::end(motion, shell, gesture, kept);
+        let kept = mail_ui_kit::motion::record_through(motion, shell, undone, text);
+        mail_ui_kit::motion::end(motion, shell, gesture, kept);
     });
 }
 

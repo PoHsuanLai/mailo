@@ -7,18 +7,12 @@
 //! (Restore Defaults, drawn only while something differs). Every
 //! change is kept at once in `keyboard.json`, or not made at all when it cannot be written (a
 //! dialog says so), like notifications and provider marks: what a key
-//! means is the window's, not a Space's. What a key may be given is [`crate::ui::keymap`]'s; this
+//! means is the window's, not a Space's. What a key may be given is [`mail_ui_kit::keymap`]'s; this
 //! only draws the map and hands it the presses.
 //!
 //! While a recorder listens it keeps every key from the window's actions, so a key pressed to be
 //! bound does nothing else.
 
-use super::press::{available, on_primary};
-use crate::ui::actions::{chord_of_key, key_of_chord};
-use crate::ui::appearance::WindowDirs;
-use crate::ui::common::Problem;
-use crate::ui::keymap::{self, DEFAULTS, Keymap, Refused};
-use crate::ui::view::{KeySaid, KeyboardPage as Showing, Shell, Shortcut};
 use dioxus::prelude::*;
 use ds::components::content::label::LabelRole;
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
@@ -28,6 +22,12 @@ use ds::prelude::{
     ShortcutKey as Key, ShortcutKinds, ShortcutRecorded, Tooltip, use_keys,
 };
 use ds::root::common::Common;
+use mail_ui_kit::actions::{chord_of_key, key_of_chord};
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::keymap::{self, DEFAULTS, Keymap, Refused};
+use mail_ui_kit::press::{available, on_primary};
+use mail_ui_kit::view::{KeySaid, KeyboardPage as Showing, Shell, Shortcut};
 use mail_ui_model::copy;
 
 /// Change the page's state.
@@ -71,7 +71,7 @@ fn settle(mut shell: Signal<Shell>, changed: Result<Keymap, Refused>) {
             };
             match kept {
                 Ok(()) => {
-                    crate::ui::configured::told_configuration();
+                    mail_ui_kit::configured::told_configuration();
                     shell.write().keymap = map;
                     None
                 }
@@ -212,7 +212,7 @@ fn KeyRow(shell: Signal<Shell>, action: Shortcut, keys: Vec<String>, changed: bo
     rsx! {
         FieldRow {
             label: name,
-            common: crate::ui::sidebar::tagged("action", format!("{action:?}")),
+            common: mail_ui_kit::common::tagged("action", format!("{action:?}")),
             ShortcutField {
                 label: format!("Change the key for {name}"),
                 value,

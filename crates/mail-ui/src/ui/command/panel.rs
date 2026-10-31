@@ -1,18 +1,18 @@
 //! The search bar's panel, as data: the rows it lists for what it lists, and the answer they
 //! are read from, searched for off the thread that draws while the panel is up.
 
-use super::super::debounce::{Settled, use_debounced};
-use super::super::menu::{MenuItem, Right};
 use super::items::{restate_sidebar, rows_of, search_now};
 use super::sections::{Destination, TEMPLATES, places_for, sections};
-use crate::ui::space::Spaces;
-use crate::ui::today::Today;
-use crate::ui::view::{BarListing, Shell, Source, place_key};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_client::Client;
 use mail_client::search::Results;
+use mail_ui_kit::debounce::{Settled, use_debounced};
+use mail_ui_kit::menu::{MenuItem, Right};
+use mail_ui_kit::space::Spaces;
+use mail_ui_kit::today::Today;
+use mail_ui_kit::view::{BarListing, Shell, Source, place_key};
 use std::collections::HashMap;
 
 /// What the panel's rows are read from besides the answer.
@@ -82,7 +82,7 @@ pub(super) fn panel_rows(
                     // The VIPs, like the sidebar, only while someone is one.
                     at_rest: place_key(place) == format!("place:{}", place.name)
                         && (waiting || place.source != Source::Scheduled)
-                        && (!crate::ui::view::is_vips(place) || !shell.vips.is_empty()),
+                        && (!mail_ui_kit::view::is_vips(place) || !shell.vips.is_empty()),
                 })
                 .collect();
             let names: Vec<String> = spaces.list().iter().map(|one| one.name.clone()).collect();
@@ -135,7 +135,7 @@ pub(super) fn Fetch(shell: Signal<Shell>, drawn: Signal<Drawn>) -> Element {
     let debounced = use_debounced(shell, |shell| shell.search.clone());
     let _fetch = use_resource(move || {
         let settled = debounced.settled.read().clone();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         async move {
             if drawn.peek().settled == settled {
                 return;

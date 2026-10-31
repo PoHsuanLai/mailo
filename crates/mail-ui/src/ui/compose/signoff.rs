@@ -12,10 +12,10 @@ use mail_client::signature::{self, Placement};
 use mail_domain::{Draft, Signature, SignatureId};
 use mail_editor::{Caret, Doc, apply};
 
-use super::super::menu::{MenuItem, Right};
 use super::float::commit;
 use super::page::{Float, Page};
 use super::props::ChoiceRow;
+use mail_ui_kit::menu::{MenuItem, Right};
 use mail_ui_model::copy;
 
 /// The menu key of "None", which takes the signature off.
@@ -33,7 +33,7 @@ fn signatures(client: &Client, page: &Page) -> Vec<Signature> {
 
 /// Where a signature the page has none of goes: the person's setting.
 fn placement() -> Placement {
-    crate::ui::prefs::current()
+    mail_ui_kit::prefs::current()
         .compose
         .signature_above_quote
         .placement()
@@ -113,7 +113,7 @@ fn items(known: &[Signature], on: Option<SignatureId>) -> Vec<MenuItem> {
 /// Drawn only while the identity has one to pick.
 #[component]
 pub(in crate::ui) fn SignatureRow(page: Signal<Page>) -> Element {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let known = signatures(&client, &page.read());
     if known.is_empty() {
         return rsx! {};

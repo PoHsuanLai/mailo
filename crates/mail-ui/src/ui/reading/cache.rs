@@ -19,7 +19,7 @@ use mail_client::query::Conversation;
 use mail_domain::{Message, ThreadId, ThreadSummary};
 use mail_reader::SanitizePolicy;
 
-use crate::ui::view::Shell;
+use mail_ui_kit::view::Shell;
 
 /// A new, empty set of the reader's per-message lookups.
 pub(in crate::ui) fn looks() -> Arc<Looks> {
@@ -81,7 +81,7 @@ pub(super) fn render_later(
 /// after; the neighbours are only rendered, not kept read.
 pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) {
     let frames = use_frames();
-    let client = crate::ui::live::use_client();
+    let client = mail_ui_kit::live::use_client();
     let kept = use_hook(|| Rc::new(RefCell::new(Vec::new())));
     // A memo, so that only a change of the open conversation counts, not every keystroke the
     // shell sees.

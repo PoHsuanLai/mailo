@@ -5,13 +5,13 @@
 //! not a schema key). The sync does the fetching; this only says whether it should. A choice that
 //! cannot be written is said in a dialog, and the switch stays as it was.
 
-use crate::ui::appearance::WindowDirs;
-use crate::ui::common::Problem;
-use crate::ui::data::AccountRow;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use mail_client::offline::{self, Keep};
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::data::AccountRow;
 use mail_ui_model::copy;
 
 /// The account's switch. Mail kept only here has no server to keep a copy of, so its page has

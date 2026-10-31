@@ -4,11 +4,11 @@ use super::use_eraser;
 use crate::ui::fixtures::{
     acct_account, dispatching, inbox_query, realistic, rebuild_into, settle_for,
 };
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_core::Store;
 use mail_domain::*;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::settings::{DeleteMeans, MailSettings};
 use std::time::Duration;
 

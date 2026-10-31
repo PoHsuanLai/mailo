@@ -16,13 +16,8 @@ mod tests;
 
 use super::marked::{Piece, pieces};
 use super::menus::FurtherMenus;
-use super::motion::{act_kind, drag, motion};
-use super::ops::{Writes, open_composer};
-use super::picks::drawn_order;
 use crate::ui::compose::{cancel_scheduled, delete_stored_draft};
 use crate::ui::provider_chip::ProvChip;
-use crate::ui::view::Marks;
-use crate::ui::view::{Opened, Shell};
 use act::press;
 use chordkit::Platform;
 use dioxus::prelude::*;
@@ -41,6 +36,11 @@ use ds::style::icon::render::Glyph;
 use listed::{Listed, Opens, RowModel};
 use mail_client::provider::Provider;
 use mail_domain::*;
+use mail_ui_kit::motion::drawn_order;
+use mail_ui_kit::motion::{act_kind, drag, motion};
+use mail_ui_kit::ops::{Writes, open_composer};
+use mail_ui_kit::view::Marks;
+use mail_ui_kit::view::{Opened, Shell};
 use mail_ui_model::copy;
 use mail_ui_model::selection::Click;
 use menu::{Pick, RowMenu};
@@ -162,7 +162,7 @@ pub(super) fn ListRow(
             (
                 Check::On,
                 EventHandler::new(move |_: Check| {
-                    let client = crate::ui::live::client();
+                    let client = mail_ui_kit::live::client();
                     act_kind(&client, shell, id, OpKind::Unstar);
                 }),
             )
@@ -190,8 +190,8 @@ pub(super) fn ListRow(
             // Shift+Enter on a focused conversation opens it in a window of its own. Stopped
             // here, so the window's own Shift+Enter does not open the open conversation as well.
             onkeydown: move |event: KeyboardEvent| {
-                let opens = crate::ui::actions::heard(keys, &event, false)
-                    == Some(crate::ui::actions::Heard::Own(crate::ui::actions::Own::OpenInWindow));
+                let opens = mail_ui_kit::actions::heard(keys, &event, false)
+                    == Some(mail_ui_kit::actions::Heard::Own(mail_ui_kit::actions::Own::OpenInWindow));
                 if let (true, Some(id)) = (opens, id) {
                     event.stop_propagation();
                     super::window::open_in_window(id);
@@ -206,7 +206,7 @@ pub(super) fn ListRow(
                 time: model.time,
                 tags,
                 star,
-                star_shortcut: crate::ui::actions::tip(crate::ui::view::Shortcut::ToggleStar),
+                star_shortcut: mail_ui_kit::actions::tip(mail_ui_kit::view::Shortcut::ToggleStar),
                 strip: None,
                 more: None,
                 onclick: move |press: Press| {
@@ -216,14 +216,14 @@ pub(super) fn ListRow(
                     match open_on.open(click) {
                         Opens::Thread(id, click) => shell.write().click(id, click, &drawn_order()),
                         Opens::Message(id, message) => {
-                            let at = super::picks::drawn_messages()
+                            let at = mail_ui_kit::motion::drawn_messages()
                                 .iter()
                                 .position(|shown| *shown == message)
                                 .unwrap_or_default();
                             shell.write().open_message(id, message, at);
                         }
                         Opens::Range(message) => {
-                            if let Some(at) = super::picks::drawn_messages()
+                            if let Some(at) = mail_ui_kit::motion::drawn_messages()
                                 .iter()
                                 .position(|shown| *shown == message)
                             {
@@ -231,7 +231,7 @@ pub(super) fn ListRow(
                             }
                         }
                         Opens::Draft(id) => {
-                            let client = crate::ui::live::client();
+                            let client = mail_ui_kit::live::client();
                             let _ = open_composer(&client, shell, Writes::Draft(id));
                         }
                     }

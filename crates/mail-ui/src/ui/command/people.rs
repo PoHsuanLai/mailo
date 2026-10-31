@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use chrono::Utc;
 
 use super::super::contacts::book::suggest;
-use super::super::history::History;
 use mail_client::search::{PersonHit, Results, Top};
+use mail_ui_kit::history::History;
 
 /// People rows under the top hit.
 const PEOPLE_CAP: usize = 3;

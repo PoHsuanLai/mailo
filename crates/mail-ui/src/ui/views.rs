@@ -3,15 +3,10 @@
 //! Opened by "Save as view" beside a search, by "Edit view" while a view is shown, and by
 //! "New view…" in the search bar. Drawn as the other sheets are, in quire's `Sheet` with a form's
 //! rows: a view is a search that stays, and the field that keeps a rule's search is the one
-//! people already know. What it writes is [`crate::ui::saved`]'s to decide; this only draws the draft and hands it
+//! people already know. What it writes is [`mail_ui_kit::saved`]'s to decide; this only draws the draft and hands it
 //! to the client.
 
-use super::common::{Seg, in_card};
-use super::menu::{Floating, MenuItem, Right, Tile};
 use super::page::{SORT_KEYS, sorts_by};
-use super::press::{SheetClose, on_primary};
-use crate::ui::saved::{self, ViewDraft, group_choices, group_name};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelStyle};
 use ds::components::controls::button_model::Answers;
@@ -23,6 +18,11 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::{Property, SortDir, View};
+use mail_ui_kit::common::{Seg, in_card};
+use mail_ui_kit::menu::{Floating, MenuItem, Right, Tile};
+use mail_ui_kit::press::{SheetClose, on_primary};
+use mail_ui_kit::saved::{self, ViewDraft, group_choices, group_name};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// Open the sheet on a new view of what `search` finds.
@@ -39,7 +39,7 @@ pub(in crate::ui) fn open_edit(mut shell: Signal<Shell>, view: &View) {
 /// Close the sheet and give the keyboard back to the window. Nothing typed is kept.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().view_editor = None;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// Change the open draft, if the sheet is still open.
@@ -62,13 +62,13 @@ fn save(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
     match built {
         Ok(view) => {
             let kept = view.clone();
-            crate::ui::motion::keep(
+            mail_ui_kit::motion::keep(
                 mail_client::act::Keep::View(view),
                 move |result| match result {
                     Ok(_) => {
                         saved::show_kept(&mut shell.write(), &kept);
                         pages.set(1);
-                        crate::ui::host::Host::focus_app();
+                        mail_ui_kit::host::Host::focus_app();
                     }
                     Err(why) => edit(shell, |draft| draft.refused = Some(why)),
                 },
@@ -83,13 +83,13 @@ fn delete(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
     let Some(id) = shell.peek().view_editor.as_ref().and_then(|draft| draft.id) else {
         return;
     };
-    crate::ui::motion::keep(
+    mail_ui_kit::motion::keep(
         mail_client::act::Keep::ForgetView(id),
         move |result| match result {
             Ok(_) => {
                 saved::show_forgotten(&mut shell.write(), id);
                 pages.set(1);
-                crate::ui::host::Host::focus_app();
+                mail_ui_kit::host::Host::focus_app();
             }
             Err(why) => edit(shell, |draft| draft.refused = Some(why)),
         },
@@ -207,7 +207,7 @@ pub(in crate::ui) fn ViewSheet(shell: Signal<Shell>, pages: Signal<u32>) -> Elem
                                 shown: Some(if grouping() { Shown::Visible } else { Shown::Hidden }),
                                 common: Common {
                                     aria_label: Some(format!("Group by: {group_label}")),
-                                    data: crate::ui::sidebar::tagged("view", "group").data,
+                                    data: mail_ui_kit::common::tagged("view", "group").data,
                                     mounted: Some(EventHandler::new(move |event: MountedEvent| {
                                         group_at.set(Some(MountedRef(event.data())));
                                     })),
@@ -242,7 +242,7 @@ pub(in crate::ui) fn ViewSheet(shell: Signal<Shell>, pages: Signal<u32>) -> Elem
                                 shown: Some(if sorting() { Shown::Visible } else { Shown::Hidden }),
                                 common: Common {
                                     aria_label: Some(format!("{}: {sort_label}", copy::fields::SORT_BY)),
-                                    data: crate::ui::sidebar::tagged("view", "sort").data,
+                                    data: mail_ui_kit::common::tagged("view", "sort").data,
                                     mounted: Some(EventHandler::new(move |event: MountedEvent| {
                                         sort_at.set(Some(MountedRef(event.data())));
                                     })),
@@ -290,7 +290,7 @@ pub(in crate::ui) fn ViewSheet(shell: Signal<Shell>, pages: Signal<u32>) -> Elem
                             icon: Icon::Trash,
                             common: Common {
                                 aria_label: Some(copy::aria::DELETE_VIEW.to_owned()),
-                                data: crate::ui::sidebar::tagged("view", "delete").data,
+                                data: mail_ui_kit::common::tagged("view", "delete").data,
                                 ..Common::default()
                             },
                             onclick: on_primary(move || delete(shell, pages)),
@@ -302,7 +302,7 @@ pub(in crate::ui) fn ViewSheet(shell: Signal<Shell>, pages: Signal<u32>) -> Elem
                         label: copy::controls::SAVE.to_owned(),
                         common: Common {
                             aria_label: Some(format!("Save {}", title.to_lowercase())),
-                            data: crate::ui::sidebar::tagged("view", "save").data,
+                            data: mail_ui_kit::common::tagged("view", "save").data,
                             ..Common::default()
                         },
                         onclick: on_primary(move || save(shell, pages)),

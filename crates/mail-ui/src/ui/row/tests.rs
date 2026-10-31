@@ -292,7 +292,7 @@ async fn an_archived_conversation_s_menu_offers_move_to_inbox_and_not_archive() 
         subject,
         ..
     } = window();
-    assert!(crate::ui::ops::apply_op(
+    assert!(mail_ui_kit::ops::apply_op(
         &crate::ui::fixtures::client(&store),
         dana,
         OpKind::Archive

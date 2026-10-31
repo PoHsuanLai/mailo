@@ -18,15 +18,15 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_domain::{CertFingerprint, Fingerprint, KeySource, KeyTrust, PgpKey, SecretHeld};
 
-use super::super::common::{in_card, tile};
-use super::super::press::{available, on_primary};
-use super::super::sidebar::tagged;
 use super::actions::{Act, Opened, RowActions, line};
 use super::certs::CertJob;
 use super::keys::Job;
 use super::{Busy, Passphrase, cert_short, short, who};
 use mail_client::password::Password;
 use mail_client::pgp::WithSecret;
+use mail_ui_kit::common::tagged;
+use mail_ui_kit::common::{in_card, tile};
+use mail_ui_kit::press::{available, on_primary};
 use mail_ui_model::copy::menus;
 
 /// A question the page is asking before it acts.
@@ -131,10 +131,10 @@ pub(in crate::ui) fn KeyRow(
     let onpick = move |act: Act| match act {
         Act::Copy => {
             if let Ok(armored) = mail_client::pgp::keys::export_public(&pgp) {
-                super::super::hover::copy(&armored);
-                super::super::motion::tell(
+                mail_ui_kit::hover::copy(&armored);
+                mail_ui_kit::motion::tell(
                     "Public key copied".to_owned(),
-                    super::super::motion::Follow::Nothing,
+                    mail_ui_kit::motion::Follow::Nothing,
                 );
             }
         }
@@ -180,7 +180,7 @@ pub(in crate::ui) fn KeyRow(
 #[component]
 pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: Busy) -> Element {
     let mut confirm = confirm;
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let cancel = move || {
         AlertButton::new(
             "Cancel",

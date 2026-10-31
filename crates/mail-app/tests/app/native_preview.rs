@@ -227,7 +227,7 @@ fn open() -> Window {
     let store = seeded(dir.path());
     let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(store.clone(), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         None,
         mail_ui::ui::ask::Open::raise(),

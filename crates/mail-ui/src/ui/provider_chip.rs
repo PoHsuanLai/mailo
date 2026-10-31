@@ -10,7 +10,7 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::provider::Provider;
 use mail_client::provider::icon::Loaded;
 
-use crate::ui::data::AccountRow;
+use mail_ui_kit::data::AccountRow;
 
 /// Where a mark is drawn, which is how many CSS px across its picture is.
 ///
@@ -93,7 +93,7 @@ pub(crate) fn use_fetch_missing(mut icons: Signal<Loaded>) {
         let dir = root.join("providers");
         let missing = mail_client::provider::icon::missing(
             &dir,
-            crate::ui::live::client().net().environment().program,
+            mail_ui_kit::live::client().net().environment().program,
         );
         if missing.is_empty() {
             return;
@@ -140,7 +140,7 @@ pub(crate) fn provider_of_mark(mark: MarkProvider) -> Option<Provider> {
 /// (Add Account's list and its steps).
 pub(crate) fn style_of_mark(
     mark: MarkProvider,
-    marks: super::view::Marks,
+    marks: mail_ui_kit::view::Marks,
     at: MarkAt,
 ) -> MarkStyle {
     provider_of_mark(mark).map_or(MarkStyle::Letter, |provider| {
@@ -151,10 +151,14 @@ pub(crate) fn style_of_mark(
 /// How `provider` is drawn under the provider-marks setting: the cached icon when the setting
 /// says icons and one is held, drawn for `at`, else the letter. Reads the startup load, so call it
 /// in a render.
-pub(crate) fn mark_style(provider: Provider, marks: super::view::Marks, at: MarkAt) -> MarkStyle {
+pub(crate) fn mark_style(
+    provider: Provider,
+    marks: mail_ui_kit::view::Marks,
+    at: MarkAt,
+) -> MarkStyle {
     let uri = match marks {
-        super::view::Marks::Icons => current().uri(provider, at.side()),
-        super::view::Marks::Letters => None,
+        mail_ui_kit::view::Marks::Icons => current().uri(provider, at.side()),
+        mail_ui_kit::view::Marks::Letters => None,
     };
     uri.map_or(MarkStyle::Letter, |uri| MarkStyle::Image(ImageSource(uri)))
 }
@@ -162,7 +166,7 @@ pub(crate) fn mark_style(provider: Provider, marks: super::view::Marks, at: Mark
 /// The mark on a row or in a field: the cached icon, or the letter, at a row's size wherever it
 /// stands.
 #[component]
-pub(crate) fn ProvChip(provider: Provider, marks: super::view::Marks) -> Element {
+pub(crate) fn ProvChip(provider: Provider, marks: mail_ui_kit::view::Marks) -> Element {
     let style = mark_style(provider, marks, MarkAt::Row);
     rsx! {
         ProviderMark { provider: mark_of(provider), size: ControlSize::Small, style }
@@ -174,7 +178,7 @@ pub(crate) fn ProvChip(provider: Provider, marks: super::view::Marks) -> Element
 /// (`acct-mark`, `style/accounts.css`).
 pub(in crate::ui) fn account_mark(row: &AccountRow) -> RowLeading {
     let provider = mail_client::provider::provider(&row.plan);
-    let marks = crate::ui::view::Marks::from(crate::ui::prefs::current().window.provider_marks);
+    let marks = mail_ui_kit::view::Marks::from(mail_ui_kit::prefs::current().window.provider_marks);
     let quire = if row.is_local() {
         MarkProvider::Local
     } else {
@@ -194,7 +198,7 @@ pub(in crate::ui) fn account_mark(row: &AccountRow) -> RowLeading {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::view::Marks;
+    use mail_ui_kit::view::Marks;
 
     #[test]
     fn quires_mark_names_the_same_provider_back() {

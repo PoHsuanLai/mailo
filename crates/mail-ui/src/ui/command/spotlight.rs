@@ -11,7 +11,7 @@
 //! the field, which moves the highlight and runs it, and mailo's [`super::keys`] completes it and
 //! leaves. The rows are one answer to one settled
 //! text: the search runs off the thread that draws once the field has been still for
-//! [`QUIET`](super::super::debounce::QUIET), and an answer to text a newer keystroke has replaced
+//! [`QUIET`](mail_ui_kit::debounce::QUIET), and an answer to text a newer keystroke has replaced
 //! is dropped, so Return runs a row on screen, not one from a query run afresh.
 
 use super::items::{chips, complete_syntax};
@@ -19,15 +19,15 @@ use super::keys::{BarKey, Plain, Step, Typed, bar_key, step};
 use super::panel::{Drawn, Fetch, World, panel_rows};
 use super::sections::{completion, lights};
 use super::suggest::suggestions;
-use crate::ui::actions::{self, Heard, Own};
-use crate::ui::menu::anchor_at;
-use crate::ui::space::Spaces;
-use crate::ui::view::{Bar, BarListing, BarOpen, Shell};
 use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_ui_kit::actions::{self, Heard, Own};
+use mail_ui_kit::menu::anchor_at;
+use mail_ui_kit::space::Spaces;
+use mail_ui_kit::view::{Bar, BarListing, BarOpen, Shell};
 use mail_ui_model::copy;
 
 /// What the panel's field is called, to a screen reader and to a test.
@@ -45,12 +45,12 @@ pub(in crate::ui) fn Spotlight(
     side_hidden: Signal<bool>,
     spaces: Signal<Spaces>,
 ) -> Element {
-    let client = crate::ui::live::use_client();
+    let client = mail_ui_kit::live::use_client();
     let keys = use_keys();
     let drawn = use_signal(Drawn::default);
     let desk = try_use_context::<crate::ui::compose::Desk>();
     // What was opened and put aside, for Recent. The window provides it; a test may not.
-    let today = try_use_context::<Signal<crate::ui::today::Today>>();
+    let today = try_use_context::<Signal<mail_ui_kit::today::Today>>();
     let mut top = use_signal(|| None::<MountedRef>);
     let open = match &shell.read().bar {
         Bar::Open(open) => Some(open.clone()),
@@ -63,7 +63,7 @@ pub(in crate::ui) fn Spotlight(
     };
     let rows = open.as_ref().map_or_else(Vec::new, |open| {
         keys.with_keymap(|keymap| {
-            let none = crate::ui::today::Today::default();
+            let none = mail_ui_kit::today::Today::default();
             let today = today.map(|today| today.read().clone());
             let world = World {
                 shell: &shell.read(),
@@ -71,7 +71,7 @@ pub(in crate::ui) fn Spotlight(
                 client: &client,
                 keymap,
                 today: today.as_ref().unwrap_or(&none),
-                hours: crate::ui::clock::hours(),
+                hours: mail_ui_kit::clock::hours(),
             };
             panel_rows(&world, &drawn.read(), &open.listing, sidebar)
         })
@@ -151,7 +151,7 @@ pub(in crate::ui) fn Spotlight(
 }
 
 /// A key in the panel's field: what [`step`] decides, done.
-fn on_key(ctx: Ctx, keys: Keys, rows: &[crate::ui::menu::MenuItem], event: KeyboardEvent) {
+fn on_key(ctx: Ctx, keys: Keys, rows: &[mail_ui_kit::menu::MenuItem], event: KeyboardEvent) {
     let shell = ctx.shell;
     // ⌘K again: the panel's field is in quire's overlay, outside the window's own keys, so it
     // answers the chord itself, selecting what is typed so the next key replaces it.
@@ -159,7 +159,7 @@ fn on_key(ctx: Ctx, keys: Keys, rows: &[crate::ui::menu::MenuItem], event: Keybo
     if heard == Some(Heard::Own(Own::Search)) {
         event.prevent_default();
         event.stop_propagation();
-        crate::ui::host::Host::focus_all(FIELD);
+        mail_ui_kit::host::Host::focus_all(FIELD);
         return;
     }
     let plain = if event.modifiers().is_empty() {
@@ -312,7 +312,7 @@ fn leave(mut shell: Signal<Shell>) {
     if shell.peek().bar != Bar::Closed {
         shell.write().bar = Bar::Closed;
     }
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// ⌘K, or a press on the toolbar's search: the panel up over the search there is, and the
@@ -322,5 +322,5 @@ pub(in crate::ui) fn summon(mut shell: Signal<Shell>) {
         let search = shell.peek().search.clone();
         shell.write().bar = Bar::Open(BarOpen::over(search));
     }
-    crate::ui::host::Host::focus_all(FIELD);
+    mail_ui_kit::host::Host::focus_all(FIELD);
 }

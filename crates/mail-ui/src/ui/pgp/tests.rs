@@ -23,8 +23,8 @@ use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, rebuild_into, seeded, type_into,
 };
 use crate::ui::reading::Reader;
-use crate::ui::view::Shell;
 use mail_core::pgp::Protected;
+use mail_ui_kit::view::Shell;
 
 pub(super) const ME: &str = "me@example.test";
 const BEA: &str = "bea@example.test";

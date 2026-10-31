@@ -6,10 +6,7 @@
 //! whatever a gesture does to five conversations is one entry on the undo stack, one toast, and
 //! one Ctrl Z that puts all five back.
 
-use super::motion::{act_all, act_kind_all, motion};
-use super::press::on_primary;
 use crate::ui::toolbar::{Tool, ToolButton};
-use crate::ui::view::{Shell, Shortcut, mute_label, op_for_selection};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::prelude::*;
@@ -18,28 +15,10 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
 use mail_client::conversation::mute_for_all;
 use mail_domain::*;
+use mail_ui_kit::motion::{act_all, act_kind_all};
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::{Shell, Shortcut, mute_label, op_for_selection};
 use mail_ui_model::copy::{aria, menus, status, tooltips};
-
-/// The ids the list drew last, in order: what a click on a row measures a range over.
-pub(super) fn drawn_order() -> Vec<ThreadId> {
-    motion()
-        .map(|state| state.order.read().clone())
-        .unwrap_or_default()
-}
-
-/// The messages the list drew last, one for each of the rows [`drawn_order`] gives, while it
-/// lists a message to a row; empty while it lists conversations.
-pub(super) fn drawn_messages() -> Vec<MessageId> {
-    motion()
-        .map(|state| state.messages.read().clone())
-        .unwrap_or_default()
-}
-
-/// The conversations an action on `thread`'s own row means: the selection when the row is in
-/// it, the row alone when it is not (`Shell::with_selection`).
-pub(super) fn with_selection(shell: Signal<Shell>, thread: ThreadId) -> Vec<ThreadId> {
-    shell.peek().with_selection(thread, &drawn_order())
-}
 
 /// What `action` does to the conversations it means among `listed`: the picked ones, or with
 /// none picked the open one. One gesture, one undo. Returns how many it reached.
@@ -171,10 +150,10 @@ pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -
     let back = mail_client::conversation::says_for_all(OpKind::Restore, &summaries, now)
         .map(|say| ToolButton::of(OpKind::Restore, menus::offered(say)));
     // In Trash or Spam, and only there, the picked mail can be deleted forever, once asked.
-    let bin = crate::ui::bin::bin_shown(&shell.read());
+    let bin = mail_ui_kit::bin::bin_shown(&shell.read());
     let destroyable = summaries
         .iter()
-        .any(|summary| crate::ui::bin::offered(bin, summary));
+        .any(|summary| mail_ui_kit::bin::offered(bin, summary));
     rsx! {
         span { class: "status", {status::selected(count)} }
         // The actions wrap within the list column when it is too narrow for one line.
@@ -185,7 +164,7 @@ pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -
                     tool,
                     aria: Some(aria::on_selected(tool.label, count)),
                     onclick: on_primary(move || {
-                        let client = crate::ui::live::client();
+                        let client = mail_ui_kit::live::client();
                         act_on_picked(&client, shell, action, &threads.peek());
                     }),
                 }
@@ -195,7 +174,7 @@ pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -
                     tool: back,
                     aria: Some(aria::on_selected(back.label, count)),
                     onclick: on_primary(move || {
-                        let client = crate::ui::live::client();
+                        let client = mail_ui_kit::live::client();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
                         let targets = shell.peek().acted_on(&ids);
                         act_kind_all(&client, shell, &targets, OpKind::Restore);
@@ -206,7 +185,7 @@ pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -
                 tool: mute,
                 aria: Some(aria::on_selected(mute.label, count)),
                 onclick: on_primary(move || {
-                    let client = crate::ui::live::client();
+                    let client = mail_ui_kit::live::client();
                     mute_picked(&client, shell, &threads.peek());
                 }),
             }
@@ -215,7 +194,7 @@ pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -
                     tool: ToolButton::of(OpKind::Destroy, aria::DELETE_FOREVER),
                     aria: Some(aria::delete_selected_forever(count)),
                     onclick: on_primary(move || {
-                        let client = crate::ui::live::client();
+                        let client = mail_ui_kit::live::client();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
                         let chosen = shell.peek().picked.chosen(&ids);
                         super::destroy::ask_chosen(&client, shell, &chosen);
@@ -229,7 +208,7 @@ pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -
                 label: aria::CLEAR_THE_SELECTION.to_owned(),
                 icon: Icon::X,
                 title: Some(tooltips::CLEAR_SELECTION.to_owned()),
-                title_shortcut: Some(crate::ui::actions::escape()),
+                title_shortcut: Some(mail_ui_kit::actions::escape()),
                 common: Common {
                     aria_label: Some(aria::CLEAR_THE_SELECTION.to_owned()),
                     ..Common::default()

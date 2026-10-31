@@ -7,18 +7,18 @@ use ds::components::fields::text_field_model::Invalid;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 
-use super::super::common::in_card;
 use dioxus::prelude::*;
+use mail_ui_kit::common::in_card;
 
-use super::super::common::classed;
-use super::super::debounce::use_debounced;
-use super::super::pick::{Ask, choose};
-use super::super::press::{SheetClose, available, on_primary};
 use super::work::{self, Counted};
 use super::{Phase, Report, run};
-use crate::ui::view::{FileSheet, Shell};
 use mail_client::export::{Target, usual};
 use mail_client::formats::{Writer, writers};
+use mail_ui_kit::common::classed;
+use mail_ui_kit::debounce::use_debounced;
+use mail_ui_kit::pick::{Ask, choose};
+use mail_ui_kit::press::{SheetClose, available, on_primary};
+use mail_ui_kit::view::{FileSheet, Shell};
 
 /// The query the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -44,7 +44,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
     let mut counted = use_signal(|| None::<Counted>);
     let _count = use_resource(move || {
         let settled = debounced.settled.read().clone();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         async move {
             counted.set(None);
             let text = settled.text.clone();
@@ -87,7 +87,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
             let query = typed(&shell.peek());
             let target = Target::new(format(), work::expand_here(&target_path));
             let of = count.unwrap_or(0);
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             run(
                 phase,
                 of,

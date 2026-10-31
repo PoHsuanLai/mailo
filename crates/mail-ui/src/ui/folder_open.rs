@@ -28,7 +28,7 @@ impl Fetcher {
             client
                 .net()
                 .folder_now(account, path)
-                .map_err(crate::ui::remedy::told)
+                .map_err(mail_ui_kit::remedy::told)
         }))
     }
 

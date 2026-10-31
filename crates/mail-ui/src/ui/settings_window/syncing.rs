@@ -6,9 +6,6 @@
 //! new interval, and starts or ends a push connection, without being opened again. A choice that
 //! cannot be written is said in a dialog, and the menu stays as it was.
 
-use crate::ui::appearance::WindowDirs;
-use crate::ui::common::Problem;
-use crate::ui::data::AccountRow;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::menus::item::item::MenuItem;
@@ -18,6 +15,9 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::offline::{self, Every, Kept, Remove, Window};
 use mail_domain::Incoming;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::data::AccountRow;
 use mail_ui_model::copy;
 
 /// What Check for New Mail calls `every`.

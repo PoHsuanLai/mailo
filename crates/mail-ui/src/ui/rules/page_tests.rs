@@ -19,12 +19,12 @@ use super::away_tests::{answering, own_server};
 use super::list::RunProgress;
 use super::server::{AwaySetter, Pusher, reach};
 use super::work::{self, Draft};
-use crate::ui::data::{AccountRow, account_rows};
 use crate::ui::files::Phase;
 use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, drain_seen, rebuild_into, right_click, type_into,
 };
-use crate::ui::view::{RulesAt, Shell, VacationAt};
+use mail_ui_kit::data::{AccountRow, account_rows};
+use mail_ui_kit::view::{RulesAt, Shell, VacationAt};
 use mail_ui_model::copy;
 
 /// The first render, then the ones after it, keeping every attribute they set: what floats in
@@ -49,7 +49,7 @@ async fn landed(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
 #[component]
 fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: bool) -> Element {
     let shell = use_signal(|| Shell {
-        rules: crate::ui::view::RulesPage {
+        rules: mail_ui_kit::view::RulesPage {
             account: account.clone(),
             path: PanePath::new(RulesAt::List).pushed(at.clone()),
         },
@@ -61,7 +61,7 @@ fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: boo
         },
         ..Shell::default()
     });
-    crate::ui::motion::use_motion();
+    mail_ui_kit::motion::use_motion();
     // Inside a quire root, as the window has it: the menus float in its overlay, and a toast is
     // said through the window's host.
     rsx! {
@@ -74,7 +74,7 @@ fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: boo
             } else {
                 RulesPage { shell }
             }
-            crate::ui::motion::Toast { shell }
+            mail_ui_kit::motion::Toast { shell }
         }
     }
 }
@@ -681,7 +681,7 @@ pub(in crate::ui) async fn drawn_states() -> String {
 /// name, its place in the order and its switch.
 #[tokio::test]
 async fn undo_puts_a_deleted_rule_back_as_it_was() {
-    use crate::ui::motion::{Follow, Motion, Restore};
+    use mail_ui_kit::motion::{Follow, Motion, Restore};
     dispatching();
     let (store, _dir) = crate::ui::fixtures::empty();
     let row = own_server(&store);

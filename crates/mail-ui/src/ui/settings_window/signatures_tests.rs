@@ -5,10 +5,10 @@
 use super::super::tests::opened_on;
 use super::row_id;
 use crate::ui::fixtures::{Seen, Work, click, drain_seen, identify, settle_quiet, type_into, work};
-use crate::ui::view::PageId;
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::signature;
 use mail_domain::{IdentityId, Signature};
+use mail_ui_kit::view::PageId;
 use mail_ui_model::copy;
 
 /// A signature called "Work" on the fixture's first address that sends, made before the window
@@ -65,7 +65,7 @@ async fn a_deleted_signature_is_said_with_an_undo_that_puts_it_back() {
     );
 
     // What the Undo puts back.
-    crate::ui::motion::Restore::Signature(made.clone())
+    mail_ui_kit::motion::Restore::Signature(made.clone())
         .put_back(&crate::ui::fixtures::client(&built.store))
         .unwrap();
     assert_eq!(built.store.signature(made.id).unwrap(), made);

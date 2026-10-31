@@ -199,17 +199,17 @@ fn is_deleted(client: &Client, message: MessageId) -> bool {
 /// Under [`RemoveUnedited::AfterMessageIsDeleted`], look again on every revision, since a delete
 /// is one, and remove the copies whose message went.
 pub(in crate::ui) fn use_remove_unedited() {
-    let settings = crate::ui::prefs::use_settings();
+    let settings = mail_ui_kit::prefs::use_settings();
     let _removing = use_resource(move || {
         // Read only to run again on the next revision.
-        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
+        let _ = mail_ui_kit::live::moved_for(mail_client::Topics::SUMMARIES);
         let due =
             settings.read().attachments.remove_unedited == RemoveUnedited::AfterMessageIsDeleted;
         async move {
             if !due || opened().is_empty() {
                 return;
             }
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             // The client is read and the files removed off the thread that draws; nothing is said.
             let _ = tokio::task::spawn_blocking(move || remove_for_deleted(&client)).await;
         }

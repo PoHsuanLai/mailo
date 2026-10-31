@@ -6,8 +6,9 @@
 //! one. Its tests seed a store as fixtures (dev-dependencies) and hand the window a client over it.
 //!
 //! [`ui`] is the window. Beside it is another program's ask to open a conversation ([`handoff`]).
-//! The settings files it and the command line read, the words it shows and the state it moves
-//! through without drawing are `mail-ui-model`'s. The seams with the platform that draw nothing, and
+//! What its parts are drawn from (the shell state, the hooks, motion, the menus and the controls
+//! they share) is `mail-ui-kit`'s. The settings files it and the command line read, the words it
+//! shows and the state it moves through without drawing are `mail-ui-model`'s. The seams with the platform that draw nothing, and
 //! what is said of a finished import, export or push, are `mail-os`'s.
 
 pub mod handoff;

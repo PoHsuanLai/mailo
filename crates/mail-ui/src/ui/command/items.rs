@@ -10,14 +10,14 @@
 use ds::prelude::*;
 use std::collections::HashMap;
 
-use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use super::commands::{COMMANDS, Command};
-use crate::ui::actions;
 use chordkit::Keymap;
 use chrono::{DateTime, Utc};
 use mail_client::Client;
 use mail_client::search::{self, ActionHit, PersonHit, Results, Top};
 use mail_domain::ThreadId;
+use mail_ui_kit::actions;
+use mail_ui_kit::menu::{MenuItem, Right, Run, Tile, Tone};
 use mail_ui_model::copy::menus;
 
 /// The commands as the matcher takes them: their words, in the panel's order.
@@ -281,7 +281,7 @@ pub(in crate::ui) fn search_now(
     query: &str,
     now: DateTime<Utc>,
 ) -> (Results, HashMap<String, String>) {
-    let history = super::super::history::history(client);
+    let history = mail_ui_kit::history::history(client);
     let (affinity, mut names) = (history.affinity(), history.names());
     let mut results = search::run(query, client.source(), &affinity, &commands(), now);
     super::people::from_book(&mut results, &mut names, client, query, &history);

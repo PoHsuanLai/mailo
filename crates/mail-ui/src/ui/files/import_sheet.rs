@@ -10,17 +10,17 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 
-use super::super::common::in_card;
 use dioxus::prelude::*;
+use mail_ui_kit::common::in_card;
 
-use super::super::common::classed;
-use super::super::debounce::use_debounced;
-use super::super::menu::{MenuItem, Right, anchor_at, narrowed, palette_groups};
-use super::super::pick::{Ask, choose};
-use super::super::press::{SheetClose, available, on_primary};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Report, run, tilde_here};
-use crate::ui::view::{FileSheet, Shell};
+use mail_ui_kit::common::classed;
+use mail_ui_kit::debounce::use_debounced;
+use mail_ui_kit::menu::{MenuItem, Right, anchor_at, narrowed, palette_groups};
+use mail_ui_kit::pick::{Ask, choose};
+use mail_ui_kit::press::{SheetClose, available, on_primary};
+use mail_ui_kit::view::{FileSheet, Shell};
 use mail_ui_model::copy;
 
 /// The path the sheet's field holds.
@@ -92,7 +92,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>) -> Element {
     };
     // Read only while the menu is open: it lists every IMAP account's folders.
     let items = if menu_open() {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         dest_items(&work::destinations(&client), &chosen)
     } else {
         Vec::new()
@@ -102,7 +102,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>) -> Element {
             return;
         };
         let into = dest();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         run(
             phase,
             count,
@@ -184,7 +184,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>) -> Element {
                                 empty: "No folder matches.",
                                 oninput: move |text: String| find.set(text),
                                 onpick: move |key: String| {
-                                    let client = crate::ui::live::client();
+                                    let client = mail_ui_kit::live::client();
                                     if let Some(found) = work::destinations(&client)
                                         .into_iter()
                                         .find(|one| one.key() == key)

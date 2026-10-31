@@ -1,0 +1,350 @@
+//! The list box through the pipeline, typed into the real window over the reference fixture.
+//!
+//! Every test here runs on a paused clock and drives it: a keystroke is searched for only once
+//! the box has been still for [`QUIET`], and the list lands once the client has read it. So a
+//! test types, moves the clock past the quiet period, and then waits for the very condition it
+//! goes on to assert. It never counts polls or sleeps: a fixed number of polls is a guess about
+//! how fast the window settles, and under a loaded `cargo test --workspace` the guess was wrong.
+
+use crate::ui::app::App;
+use crate::ui::fixtures::{Work, dispatching, rebuild_into, type_into, work};
+use chrono::Utc;
+use dioxus::prelude::*;
+use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
+use mail_core::search::list_highlight;
+use mail_domain::*;
+use mail_ui_kit::debounce::QUIET;
+use mail_ui_kit::list_search::row_hit;
+
+/// The window over the Work Space, and its search panel's field.
+struct Window {
+    dom: VirtualDom,
+    search: ElementId,
+    _built: (tempfile::TempDir, ThreadId),
+}
+
+fn window() -> Window {
+    dispatching();
+    let Work {
+        store,
+        root,
+        dirs,
+        dana,
+        ..
+    } = work();
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(crate::ui::fixtures::client(&store))
+        .with_root_context(dirs);
+    rebuild_into(&mut dom);
+    // ⌘K brings up the search panel, whose field is the list's search; it floats in the root's
+    // overlay, drawn the renders after it asks.
+    crate::ui::fixtures::chord(
+        &mut dom,
+        "k",
+        crate::ui::fixtures::PRIMARY,
+        ElementId(crate::ui::fixtures::INSIDE_THE_SHELL as usize),
+    );
+    let seen = crate::ui::fixtures::drain_seen(&mut dom);
+    let search = *seen
+        .all("aria-label", crate::ui::command::LABEL)
+        .last()
+        .expect("the search panel's field");
+    Window {
+        dom,
+        search,
+        _built: (root, dana),
+    }
+}
+
+impl Window {
+    /// Type `text` as the box's whole value, let the box go still, and wait until `landed`
+    /// holds for the page. Returns that page.
+    async fn typed(&mut self, text: &str, landed: impl Fn(&str) -> bool) -> String {
+        type_into(&mut self.dom, self.search, text);
+        tokio::time::advance(QUIET).await;
+        self.until(text, landed).await
+    }
+
+    /// Return in the panel's field with no row lit: the panel goes and the search stays the
+    /// list's, shown across its header. Waits until `landed` holds.
+    async fn put_away(&mut self, text: &str, landed: impl Fn(&str) -> bool) -> String {
+        crate::ui::fixtures::chord(
+            &mut self.dom,
+            "Enter",
+            dioxus::html::input_data::keyboard_types::Modifiers::empty(),
+            self.search,
+        );
+        self.until(text, landed).await
+    }
+
+    /// Render until `landed` holds, doing the window's pending work in between.
+    ///
+    /// Bounded in the paused clock's time, not the wall's, so the bound is only reached if the
+    /// window goes idle without ever showing the condition.
+    async fn until(&mut self, text: &str, landed: impl Fn(&str) -> bool) -> String {
+        let start = tokio::time::Instant::now();
+        loop {
+            self.dom.render_immediate(&mut NoOpMutations);
+            let page = dioxus_ssr::render(&self.dom);
+            if landed(&page) {
+                return page;
+            }
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "after typing {text:?} the list never showed what the test waits for: {:?} {:?}",
+                subjects(&page),
+                notes(&page)
+            );
+            self.dom.wait_for_work().await;
+        }
+    }
+}
+
+/// Each row's subject cell, markup and all, in list order.
+fn subjects(page: &str) -> Vec<String> {
+    // A row that has left is still drawn until its exit settles: not one the list is showing.
+    page.split(r#"class="ds-list-item""#)
+        .skip(1)
+        .filter(|item| {
+            !item
+                .trim_start()
+                .starts_with(r#"role="none" data-presence="leaving""#)
+        })
+        .filter_map(|item| item.split_once(r#"<div class="ds-thread-sub ds-truncate">"#))
+        .filter_map(|(_, rest)| rest.split_once("</div>"))
+        .map(|(subject, _)| subject.to_owned())
+        .collect()
+}
+
+/// What the end of the search shown across the list's header says: where it looked, or why it
+/// could not be run.
+fn notes(page: &str) -> Vec<String> {
+    let head = page
+        .split_once(r#"class="list-head"#)
+        .and_then(|(_, rest)| rest.split_once(r#"class="list""#))
+        .map(|(head, _)| head)
+        .unwrap_or_default();
+    head.split("class=\"search-scope")
+        .skip(1)
+        .filter_map(|rest| rest.split_once('>'))
+        .filter_map(|(_, rest)| rest.split_once('<'))
+        .map(|(text, _)| text.to_owned())
+        .collect()
+}
+
+/// The strip's heading, as markup: the words alone are also in the stylesheet's comments.
+const TOP_RESULTS: &str = r#"class="ds-section-header-title">Top results<"#;
+
+const UIDVAL: &str =
+    r#"Re: UIDL stability across a <mark class="ds-mark">UIDVAL</mark>IDITY change"#;
+
+/// A keystroke is searched for only once the box is still, and then half a word puts its
+/// thread first with the typed part marked, with no strip repeating the one row.
+#[tokio::test(start_paused = true)]
+async fn half_a_word_once_the_box_is_still_puts_its_thread_first_marked() {
+    let mut window = window();
+    let place = subjects(&dioxus_ssr::render(&window.dom));
+    type_into(&mut window.dom, window.search, "uidval");
+    window.dom.render_immediate(&mut NoOpMutations);
+    assert_eq!(
+        subjects(&dioxus_ssr::render(&window.dom)),
+        place,
+        "the list searched on the keystroke itself"
+    );
+    let page = window
+        .typed("uidval", |page| {
+            subjects(page).first().map(String::as_str) == Some(UIDVAL)
+        })
+        .await;
+    assert_ne!(
+        subjects(&page),
+        place,
+        "the box went still and nothing was searched"
+    );
+    assert_eq!(
+        subjects(&page),
+        vec![UIDVAL.to_owned()],
+        "one match, and no strip repeating it"
+    );
+    assert!(!page.contains(TOP_RESULTS), "a strip of the one row");
+}
+
+/// The top results lead under their heading, and the matches follow newest first with no heading
+/// of their own: the order says it.
+#[tokio::test(start_paused = true)]
+async fn a_word_lists_newest_first_under_its_top_results() {
+    let mut window = window();
+    let page = window
+        .typed("cursors", |page| page.contains(TOP_RESULTS))
+        .await;
+    // The heading the matches once had, gone with its constant: the order says it.
+    assert!(!page.contains("Newest first"), "the list is headed");
+    let (_, rows) = page
+        .split_once(TOP_RESULTS)
+        .expect("the strip has its heading");
+    let plain = |rows: Vec<String>| -> Vec<String> {
+        rows.into_iter()
+            .map(|row| {
+                row.replace(r#"<mark class="ds-mark">"#, "")
+                    .replace("</mark>", "")
+            })
+            .collect()
+    };
+    let all = subjects(rows);
+    assert!(
+        plain(all.clone()).ends_with(&[
+            "Notes from the sync review".to_owned(),
+            "Re: Re: Keyset cursors, not offsets".to_owned(),
+        ]),
+        "the matches, newest first, after the strip: {all:?}"
+    );
+    let strip = all;
+    assert_eq!(
+        strip.first().map(String::as_str),
+        Some(r#"Re: Re: Keyset <mark class="ds-mark">cursors</mark>, not offsets"#),
+        "the subject hit leads the strip, marked: {strip:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn clearing_the_box_gives_the_place_back() {
+    let mut window = window();
+    let place = subjects(&dioxus_ssr::render(&window.dom));
+    assert!(
+        place.len() > 2,
+        "the Work inbox has more than two threads: {place:?}"
+    );
+    let searched = subjects(&window.typed("cursors", |page| page.contains("<mark")).await);
+    assert_ne!(searched, place, "the search changed nothing");
+    let back = subjects(&window.typed("", |page| subjects(page) == place).await);
+    assert_eq!(back, place, "clearing the box did not restore the place");
+    assert!(
+        !back.iter().any(|row| row.contains("<mark")),
+        "marks outlived the search"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_bare_pattern_runs_over_this_page_and_its_marks_say_so() {
+    let mut window = window();
+    // Narrowed by a word, it is a search.
+    let page = window
+        .typed("re:/^Re: / keyset", |page| subjects(page).len() == 1)
+        .await;
+    assert_eq!(subjects(&page).len(), 1, "{:?}", subjects(&page));
+
+    let page = window
+        .typed("re:/^Re: /", |page| {
+            page.contains(r#"<mark class="ds-mark">Re:</mark>"#) && subjects(page).len() == 2
+        })
+        .await;
+    assert_eq!(
+        subjects(&page),
+        vec![
+            r#"<mark class="ds-mark">Re:</mark> UIDL stability across a UIDVALIDITY change"#,
+            r#"<mark class="ds-mark">Re:</mark> Re: Keyset cursors, not offsets"#,
+        ],
+    );
+    // The marks show what the pattern matched; the search shown says it looked only here.
+    let page = window
+        .put_away("re:/^Re: /", |page| !notes(page).is_empty())
+        .await;
+    assert_eq!(notes(&page), ["on this page of Inbox"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_broken_pattern_says_why_in_the_header_and_lists_no_rows() {
+    let mut window = window();
+    window
+        .typed("re:/(/", |page| subjects(page).is_empty())
+        .await;
+    let page = window
+        .put_away("re:/(/", |page| {
+            page.contains(r#"class="search-scope bad""#)
+        })
+        .await;
+    assert!(subjects(&page).is_empty(), "{:?}", subjects(&page));
+    assert_eq!(notes(&page), ["unclosed group"]);
+}
+
+fn summary(subject: &str, snippet: &str) -> ThreadSummary {
+    ThreadSummary {
+        subject: subject.to_owned(),
+        snippet: snippet.to_owned(),
+        from: Address {
+            name: None,
+            email: "a@example.test".to_owned(),
+        },
+        last_date: Utc::now(),
+        read: ReadState::Read,
+        ..mail_domain::testing::summary()
+    }
+}
+
+#[test]
+fn row_marks_sit_on_char_boundaries_after_cjk_and_emoji() {
+    struct Case {
+        name: &'static str,
+        typed: &'static str,
+        subject: &'static str,
+        want_subject: &'static [&'static str],
+        want_snippet: &'static [&'static str],
+    }
+    let cases = [
+        Case {
+            name: "cjk",
+            typed: "郵件",
+            subject: "校園郵件通知 😀",
+            want_subject: &["郵件"],
+            want_snippet: &[],
+        },
+        Case {
+            name: "emoji before",
+            typed: "valid",
+            subject: "😀valid 🎉",
+            want_subject: &["valid"],
+            want_snippet: &[],
+        },
+        Case {
+            name: "snippet cut around its match",
+            typed: "wrinkle",
+            subject: "plain subject",
+            want_subject: &[],
+            want_snippet: &["wrinkle"],
+        },
+    ];
+    let filler = "😀".repeat(40);
+    for Case {
+        name,
+        typed,
+        subject,
+        want_subject,
+        want_snippet,
+    } in cases
+    {
+        let highlight =
+            list_highlight(typed, &Utc, &mail_core::query::unnamed).expect("no pattern");
+        let snippet = format!("{filler} one wrinkle: two threads");
+        let hit = row_hit(&summary(subject, &snippet), &highlight).expect("a search is active");
+        let marked: Vec<&str> = hit.subject.iter().map(|r| &subject[r.clone()]).collect();
+        assert_eq!(marked, *want_subject, "{name}: subject");
+        let cut: Vec<&str> = hit
+            .snippet_marks
+            .iter()
+            .map(|r| &hit.snippet[r.clone()])
+            .collect();
+        assert_eq!(cut, *want_snippet, "{name}: snippet");
+        if !want_snippet.is_empty() {
+            assert!(
+                hit.snippet.starts_with('…') && hit.snippet.contains("wrinkle"),
+                "{name}: the snippet was not cut around the match: {}",
+                hit.snippet
+            );
+        }
+    }
+    assert_eq!(
+        row_hit(&summary("a", "b"), &Default::default()),
+        None,
+        "no search, no marks"
+    );
+}

@@ -1,15 +1,12 @@
 //! One folder's row, the menu under it, and what its picks do.
 
 use super::super::fetching;
-use super::super::menu::Floating;
 use super::super::move_to;
 use super::folder_act::{act, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions};
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use super::lit::{Landing, Under, lit};
-use super::tagged;
-use crate::ui::view::{Source, folder_of};
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::base::vocab::RowState;
@@ -20,6 +17,9 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_client::folder::Refusal;
 use mail_domain::{Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription};
+use mail_ui_kit::common::tagged;
+use mail_ui_kit::menu::Floating;
+use mail_ui_kit::view::{Source, folder_of};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -318,7 +318,7 @@ fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Op
                 path: path.clone(),
                 non_empty: NonEmpty::Refuse,
             };
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             match act(&client, wires.shell, account.clone(), work, delimiter) {
                 Ok(()) => open.set(Open::Closed),
                 Err(Refusal::Folder(FolderError::NotEmpty { messages, .. })) => {
@@ -339,7 +339,7 @@ pub(super) fn run(
     work: FolderWork,
     delimiter: Option<char>,
 ) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     match act(&client, wires.shell, account.clone(), work, delimiter) {
         Ok(()) => {
             let (mut open, mut note) = (wires.open, wires.note);

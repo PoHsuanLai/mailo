@@ -85,7 +85,7 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
     let (pass, release) = held_pass();
     let contexts = mail_ui::ui::native::contexts_passing(
         mail_client::Client::open(store, mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         None,
         mail_ui::ui::ask::Open::raise(),
@@ -131,7 +131,7 @@ fn an_account_added_while_the_window_is_open_is_said() {
     let (pass, release) = held_pass();
     let contexts = mail_ui::ui::native::contexts_passing(
         mail_client::Client::open(Arc::clone(&store), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         None,
         mail_ui::ui::ask::Open::raise(),

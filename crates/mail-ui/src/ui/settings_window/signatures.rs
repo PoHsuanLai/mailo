@@ -11,8 +11,6 @@
 //! next one is signed with what was kept here.
 
 use crate::ui::compose::{Body, Page};
-use crate::ui::motion::{Follow, Restore, tell};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::ButtonRole;
 use ds::components::fields::field_row::FieldRow;
@@ -24,6 +22,8 @@ use mail_client::Logged;
 use mail_client::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
 use mail_editor::{Doc, Node, ParaKind, Session};
+use mail_ui_kit::motion::{Follow, Restore, tell};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// The stack's element id: its back button is `signatures-pane-back-detail`.
@@ -96,7 +96,7 @@ impl Unkept {
 #[component]
 pub(super) fn Signatures(shell: Signal<Shell>) -> Element {
     use_context_provider(|| Refusals(Signal::new(Vec::new())));
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let mut path = use_signal(|| PanePath::new(SignaturesAt::List));
     let any = !client.compose().sending_accounts().is_empty();
     if !any {
@@ -158,9 +158,10 @@ fn defaults_of(signature: &Signature) -> String {
 #[component]
 fn SignatureList(path: Signal<PanePath<SignaturesAt>>) -> Element {
     // Read again with each change: a signature made, renamed, made a default or deleted.
-    let _ =
-        crate::ui::live::moved_for(mail_client::Topics::IDENTITIES | mail_client::Topics::ACCOUNTS);
-    let client = crate::ui::live::client();
+    let _ = mail_ui_kit::live::moved_for(
+        mail_client::Topics::IDENTITIES | mail_client::Topics::ACCOUNTS,
+    );
+    let client = mail_ui_kit::live::client();
     // Unreadable is nothing to list; the next change read again.
     let every = client.signing().every().unwrap_or_default();
     rsx! {
@@ -219,11 +220,11 @@ fn rows(
         copy::controls::NEW_SIGNATURE.to_owned(),
         rsx! {
             Row {
-                leading: crate::ui::common::add_mark(),
+                leading: mail_ui_kit::common::add_mark(),
                 title: copy::controls::NEW_SIGNATURE,
                 size: RowSize::Settings,
                 onclick: move |_| {
-                    let client = crate::ui::live::client();
+                    let client = mail_ui_kit::live::client();
                     if let Ok(made) = client.signing().create(whose, "") {
                         push(made.id);
                     }
@@ -260,9 +261,10 @@ fn SignaturePage(
     id: SignatureId,
 ) -> Element {
     // Read again with each change, so the switches say what was kept.
-    let _ =
-        crate::ui::live::moved_for(mail_client::Topics::IDENTITIES | mail_client::Topics::ACCOUNTS);
-    let client = crate::ui::live::client();
+    let _ = mail_ui_kit::live::moved_for(
+        mail_client::Topics::IDENTITIES | mail_client::Topics::ACCOUNTS,
+    );
+    let client = mail_ui_kit::live::client();
     let found = client.stored().signature(id).ok().and_then(|kept| {
         let identity = client.stored().identity(kept.identity).ok().flatten()?;
         Some((kept, identity))
@@ -315,7 +317,7 @@ fn SignatureEditor(
             return;
         }
         kept_at.set(edits);
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         // Kept, or not: the words stay on the page either way, and the next edit tries again.
         let kept = client
             .signing()
@@ -335,7 +337,7 @@ fn SignatureEditor(
                     accessory: Accessory::Toggle {
                         value: if on { Check::On } else { Check::Off },
                         on_toggle: EventHandler::new(move |_| {
-                            let client = crate::ui::live::client();
+                            let client = mail_ui_kit::live::client();
                             let next = if on { IsDefault::Alternate } else { IsDefault::Default };
                             let made = client.signing().make_default(id, purpose, next)
                                 .or_log("the signature's default was not kept");
@@ -364,7 +366,7 @@ fn SignatureEditor(
                         placeholder: mail_domain::UNNAMED_SIGNATURE,
                         oninput: move |now: String| {
                             typed.set(now.clone());
-                            let client = crate::ui::live::client();
+                            let client = mail_ui_kit::live::client();
                             // As above: the name stays as typed, and the next key tries again.
                             let kept = client.signing().rename(id, &now)
                                 .or_log("the signature's name was not kept");
@@ -392,8 +394,8 @@ fn SignatureEditor(
                     label: copy::controls::DELETE_SIGNATURE,
                     role: ButtonRole::Destructive,
                     common: Common { aria_label: Some(copy::aria::delete_signature(&name)), ..Common::default() },
-                    onclick: crate::ui::press::on_primary(move || {
-                        let client = crate::ui::live::client();
+                    onclick: mail_ui_kit::press::on_primary(move || {
+                        let client = mail_ui_kit::live::client();
                         let Some(had) = client.signing().delete(id)
                             .or_log("the signature was not deleted")
                         else {

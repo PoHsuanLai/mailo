@@ -105,6 +105,9 @@ mail-intents.workspace = true
 mail-client.workspace = true
 # The window, over the client.
 mail-ui.workspace = true
+# The window below its parts: its shell state, hooks and shared controls, which the program and its
+# tests name directly.
+mail-ui-kit.workspace = true
 # The settings files the window and the command line read.
 mail-ui-model.workspace = true
 # The launcher's count and the words the command line prints, which the window shares.

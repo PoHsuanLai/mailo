@@ -267,7 +267,7 @@ async fn an_attachment_mentioned_and_missing_shows_one_bar_until_send_anyway() {
 
 #[tokio::test]
 async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
-    use crate::ui::pick::{Ask, Dialogs};
+    use mail_ui_kit::pick::{Ask, Dialogs};
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let files = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
@@ -403,8 +403,8 @@ async fn esc_on_a_draft_with_nothing_in_it_throws_it_away() {
     );
     assert!(store.draft(draft.id).is_err(), "the empty draft was kept");
     assert!(
-        crate::ui::today::load(&dirs.state)
-            .parked_in(crate::ui::space::SpaceId(0))
+        mail_ui_kit::today::load(&dirs.state)
+            .parked_in(mail_ui_kit::space::SpaceId(0))
             .is_empty(),
         "Today lists the empty draft"
     );
@@ -439,7 +439,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
     });
     let before = window.dom.in_runtime(|| to_html(&page.peek().session.doc));
     assert!(before.contains("<u>"), "{before}");
-    assert!(crate::ui::today::load(&dirs.state).parked.is_empty());
+    assert!(mail_ui_kit::today::load(&dirs.state).parked.is_empty());
 
     let root_id = seen.one("class", "cpage");
     press(
@@ -453,9 +453,9 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         window.dom.in_runtime(|| shell.peek().composing.is_none()),
         "Esc left the page open"
     );
-    let today = crate::ui::today::load(&dirs.state);
+    let today = mail_ui_kit::today::load(&dirs.state);
     let parked: Vec<(DraftId, String)> = today
-        .parked_in(crate::ui::space::SpaceId(0))
+        .parked_in(mail_ui_kit::space::SpaceId(0))
         .iter()
         .map(|p| (p.item, p.title.clone()))
         .collect();
@@ -476,8 +476,8 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         "the reopened draft is not the one that was parked"
     );
     assert!(
-        crate::ui::today::load(&dirs.state)
-            .parked_in(crate::ui::space::SpaceId(0))
+        mail_ui_kit::today::load(&dirs.state)
+            .parked_in(mail_ui_kit::space::SpaceId(0))
             .is_empty(),
         "reopening left the entry in Today"
     );

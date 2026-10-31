@@ -100,10 +100,7 @@ fn a_person_found_in_search_is_written_to_with_two_files_and_sent() {
         copy::controls::ATTACH
     ));
     window.until("the picked file is attached", |h| h.count(ATTACHED) == 1);
-    assert_eq!(
-        window.asked(),
-        [mail_ui::ui::native::DialogAsk::Attachments]
-    );
+    assert_eq!(window.asked(), [mail_ui_kit::pick::Ask::Attachments]);
 
     // Files dragged over the window light the composer, over it target it, and the light goes
     // with the drag; the list takes no files.
@@ -191,9 +188,9 @@ fn pictures_go_in_the_body_by_dialog_drop_and_paste_and_are_sent_inline() {
         chrono::Utc::now(),
         |_| {},
         |_, contexts| {
-            contexts.with(mail_ui::ui::native::ClipboardImage::with_answer(|| {
-                Some(PASTED.to_vec())
-            }))
+            contexts.with(mail_ui_kit::pasted_image::ClipboardImage::with_answer(
+                || Some(PASTED.to_vec()),
+            ))
         },
     );
     window.press(&[], Key::Char('c'), 1);
@@ -217,7 +214,7 @@ fn pictures_go_in_the_body_by_dialog_drop_and_paste_and_are_sent_inline() {
     window.until("/ offers Image", |h| h.count(".ds-menu .ds-menu-item") > 0);
     window.press(&[], Key::Enter, 1);
     window.until("the picked picture is drawn", |h| h.count(PICTURE) == 1);
-    assert_eq!(window.asked(), [mail_ui::ui::native::DialogAsk::Images]);
+    assert_eq!(window.asked(), [mail_ui_kit::pick::Ask::Images]);
     assert!(
         window
             .harness

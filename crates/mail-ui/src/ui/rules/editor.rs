@@ -15,18 +15,18 @@ use ds::style::icon::render::Glyph;
 use mail_domain::{AfterMatch, Rule, RuleAction};
 use porter_core::AccountId;
 
-use super::super::common::classed;
-use super::super::data::AccountRow;
-use super::super::menu::{Floating, MenuItem, anchor_at, narrowed, palette_groups};
 use super::super::move_to::destinations;
-use super::super::press::{available, on_primary};
 use super::conditions::{self, ConditionRows};
 use super::when::Joined;
 use super::work::{self, Draft};
 use super::{Said, back};
-use crate::ui::common::Problem;
-use crate::ui::view::Shell;
 use mail_domain::RuleId;
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::common::classed;
+use mail_ui_kit::data::AccountRow;
+use mail_ui_kit::menu::{Floating, MenuItem, anchor_at, narrowed, palette_groups};
+use mail_ui_kit::press::{available, on_primary};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// Which menu the "Add an action" button has open.
@@ -232,7 +232,7 @@ pub(super) fn RulePage(
     applied: Callback<Rule>,
 ) -> Element {
     let editing = use_signal(|| {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let kept = id.and_then(|id| {
             work::listed(&client, row.id.clone())
                 .ok()?
@@ -292,7 +292,7 @@ fn RuleEditor(
     let Some(draft) = editing() else {
         return rsx! {};
     };
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let index = client.rules_manage().labels(account.clone());
     let names: Vec<String> = index.iter().map(|(name, _)| name.clone()).collect();
     let folders: Vec<String> = destinations(&client, account.clone())
@@ -491,7 +491,7 @@ fn RuleEditor(
                     availability: available(readable),
                     onclick: on_primary(move || {
                         let Some(draft) = editing.peek().clone() else { return };
-                        let client = crate::ui::live::client();
+                        let client = mail_ui_kit::live::client();
                         match work::save(&client, account.clone(), &draft, &chrono::Local) {
                             Ok(rule) => {
                                 refused.set(None);

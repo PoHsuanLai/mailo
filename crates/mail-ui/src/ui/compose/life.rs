@@ -17,15 +17,15 @@ use super::page::{Guard, Page, Phase, Saved, When, Wire};
 use super::protection::Protection;
 use super::recipients::commit_typed;
 use super::seal::SealBar;
-use crate::ui::today::Today;
 use mail_editor::missing_attachment;
+use mail_ui_kit::today::Today;
 use mail_ui_model::settings::{ComposeSettings, MessageFormat};
 
 /// How long a send waits in the outbox before it may leave, which is how long Undo has: the
 /// person's `compose.undo_send`, read when Send is pressed, so a change in Settings counts from the
 /// next send and never moves one already counting down. `Off` is no wait at all.
 pub(in crate::ui) fn grace() -> chrono::TimeDelta {
-    crate::ui::prefs::current().compose.undo_send.grace()
+    mail_ui_kit::prefs::current().compose.undo_send.grace()
 }
 
 /// The page for `draft`: the parked copy when there is one, exactly as it was left, else a page
@@ -251,7 +251,7 @@ pub(in crate::ui) fn park(
     mut page: Page,
     parked: &mut Vec<Page>,
     today: &mut Today,
-    space: crate::ui::space::SpaceId,
+    space: mail_ui_kit::space::SpaceId,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
     let saved = save(client, &mut page, now);
@@ -276,7 +276,7 @@ pub(in crate::ui) fn park(
     page.float = super::page::Float::Closed;
     page.selection = None;
     parked.retain(|kept| kept.draft != page.draft);
-    today.park(space, page.draft, &title, crate::ui::today::at(now));
+    today.park(space, page.draft, &title, mail_ui_kit::today::at(now));
     parked.push(page);
     saved.map(|_| ())
 }
@@ -421,7 +421,7 @@ where
         remind,
         now,
     )
-    .map_err(crate::ui::remedy::told)?;
+    .map_err(mail_ui_kit::remedy::told)?;
     Ok(folded(page, due, grace))
 }
 
@@ -519,5 +519,5 @@ pub(in crate::ui) fn unsend(
     client
         .compose()
         .unsend(draft, now)
-        .map_err(crate::ui::remedy::told)
+        .map_err(mail_ui_kit::remedy::told)
 }

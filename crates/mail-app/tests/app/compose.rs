@@ -10,7 +10,7 @@ use mail_core::compose;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_ui::ui::view;
+use mail_ui_kit::view;
 use porter_core::AccountId;
 
 const IDENTITY: IdentityId =

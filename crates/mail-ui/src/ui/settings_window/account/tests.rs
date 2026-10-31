@@ -4,15 +4,15 @@
 //! main window asks for it.
 
 use super::Seams;
-use crate::ui::data::account_rows;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, Work, click, dispatching, drain_seen, press, rebuild_into, work,
 };
 use crate::ui::settings_window::tests::opened_on;
 use crate::ui::settings_window::{SettingsAsked, SettingsAt, settings_root};
-use crate::ui::view::PageId;
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::Storage;
+use mail_ui_kit::data::account_rows;
+use mail_ui_kit::view::PageId;
 use porter_core::AccountId;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

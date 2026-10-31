@@ -43,7 +43,7 @@ pub(super) fn Sandbox(
     let settings = use_hook(try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>);
     let text = settings.map_or(1.0, |settings| settings.read().reading.text_zoom.factor());
     let height = use_signal(|| None::<f32>);
-    let selections = use_hook(try_consume_context::<super::selection::Selections>);
+    let selections = use_hook(try_consume_context::<mail_ui_kit::frame_selection::Selections>);
     {
         let selections = selections.clone();
         use_drop(move || {
@@ -145,8 +145,8 @@ pub(super) fn Sandbox(
                 }
             },
             onkeydown: move |event: KeyboardEvent| {
-                let said = crate::ui::actions::heard(keys, &event, false);
-                if said == Some(crate::ui::actions::Heard::Standard(StandardAction::SelectAll)) {
+                let said = mail_ui_kit::actions::heard(keys, &event, false);
+                if said == Some(mail_ui_kit::actions::Heard::Standard(StandardAction::SelectAll)) {
                     event.stop_propagation();
                     let Some(mounted) = frame.peek().clone() else {
                         return;
@@ -180,7 +180,7 @@ pub(super) fn Sandbox(
 pub(super) fn MessageView(
     message_id: MessageId,
     html: String,
-    #[props(default)] holder: Option<crate::ui::original::Holder>,
+    #[props(default)] holder: Option<mail_ui_kit::original::Holder>,
     #[props(default)] plain: bool,
     #[props(default)] fit: bool,
     /// The words a right click on the frame was on (`Sandbox`).

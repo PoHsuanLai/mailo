@@ -12,15 +12,15 @@
 //! the mark is the way back: its tip says Sign In Again, and a press asks about it again in the
 //! sign-in prompt instead of syncing.
 
-use crate::ui::data::syncs_nothing;
 use crate::ui::fetching::{Fetching, sync_availability, use_status};
-use crate::ui::press::on_primary;
 use crate::ui::reauth::Reauth;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, BusyLook, ImagePosition};
 use ds::prelude::*;
 use mail_client::fetch::Link;
+use mail_ui_kit::data::syncs_nothing;
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 use mail_ui_model::fetching::status::{StatusLine, Tone};
 
@@ -56,12 +56,12 @@ pub(super) fn dot(line: &StatusLine) -> Option<&'static str> {
 /// The foot's sync mark, for the accounts `shell` shows.
 #[component]
 pub(super) fn SyncMark(shell: Signal<Shell>) -> Element {
-    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
+    let every = mail_ui_kit::live::use_live(|| mail_client::query::Accounts);
     let rows = use_memo(move || {
         every
             .read()
             .value()
-            .map(|accounts| crate::ui::data::rows_of(accounts))
+            .map(|accounts| mail_ui_kit::data::rows_of(accounts))
             .unwrap_or_default()
     });
     let line = use_status(shell);

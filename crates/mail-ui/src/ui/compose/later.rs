@@ -20,14 +20,14 @@ use mail_client::undo::{Resend, Undo};
 use mail_client::when::Clock;
 use mail_domain::{ChangeId, Draft, DraftId, Patch, SendState};
 
-use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};
-use super::super::motion::{Follow, record, tell};
 use super::desk::{Desk, refusal};
 use super::page::{Float, Page, When};
-use crate::ui::space::Scope;
-use crate::ui::view::Shell;
 use mail_client::compose::Leaves;
+use mail_ui_kit::menu::{MenuKey, menu_key};
+use mail_ui_kit::motion::{Follow, record, tell};
+use mail_ui_kit::space::Scope;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// The Sends menu's key for "Pick a Time…".
@@ -116,7 +116,7 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
         return rsx! {};
     };
     let now = Utc::now();
-    let hours = crate::ui::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     let reading = pick_time(&typed, now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
     let (validity, says) = match &reading {
@@ -138,7 +138,7 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
     };
     rsx! {
         Popover {
-            anchor: super::super::menu::anchor_at(anchor),
+            anchor: mail_ui_kit::menu::anchor_at(anchor),
             placement: Placement::new(Side::Bottom, Align::Start),
             gap: Px(4.0),
             arrow: Arrow::None,
@@ -216,11 +216,11 @@ pub(in crate::ui) fn scheduled_in(drafts: Vec<Draft>) -> Vec<Draft> {
 /// and the toast offers it back. Refused (it has started to leave), the reason is said in the
 /// toast and nothing changes.
 pub(in crate::ui) fn cancel_scheduled(shell: Signal<Shell>, draft: DraftId) -> Result<(), String> {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let held = client
         .stored()
         .draft(draft)
-        .map_err(crate::ui::remedy::told)?;
+        .map_err(mail_ui_kit::remedy::told)?;
     let SendState::Scheduled { at } = held.state else {
         return Ok(());
     };

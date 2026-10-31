@@ -16,9 +16,12 @@ use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_core::SqliteStore;
 use mail_core::notify::{Notification, Notifier};
-use mail_ui::ui::appearance::WindowDirs;
-use mail_ui::ui::native::Configured;
-use mail_ui::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
+use mail_ui::ui::native::SaveDir;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::clock::WallClock;
+use mail_ui_kit::configured::Configured;
+use mail_ui_kit::original::{Browse, Fetch, Original};
+use mail_ui_kit::pick::{Ask as DialogAsk, Dialogs};
 use std::path::PathBuf;
 
 pub use super::look::{panel_row, panel_settled, parsed, queued, row_of};
@@ -199,7 +202,7 @@ impl Shared {
     fn contexts(&self) -> RootContexts {
         mail_ui::ui::native::contexts(
             self.clients.open(Arc::clone(&self.store)),
-            mail_ui::ui::view::Appearance::default(),
+            mail_ui_kit::view::Appearance::default(),
             None,
             Some(self.dirs.clone()),
             mail_ui::ui::ask::Open::raise(),

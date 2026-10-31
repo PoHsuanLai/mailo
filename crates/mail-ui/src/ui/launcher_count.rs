@@ -4,9 +4,9 @@
 //! blocking thread, and handed on only when the number changed, so a write that leaves it alone
 //! sends the dock nothing.
 
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_os::launcher::{self, Launcher, Unread};
+use mail_ui_kit::view::Shell;
 
 /// Keep the launcher's count. Does nothing in a window with no [`Launcher`], which is every test
 /// that does not hand it a recorder.
@@ -16,11 +16,11 @@ pub(super) fn use_launcher_count(shell: Signal<Shell>) {
     // A memo, so a keystroke (a shell change) does not recount; only a new scope does.
     let scope = use_memo(move || shell.read().scope.clone());
     let counted: Resource<Option<Unread>> = use_resource(move || {
-        let _ = crate::ui::live::moved_for(
+        let _ = mail_ui_kit::live::moved_for(
             mail_client::Topics::SUMMARIES | mail_client::Topics::FOLDERS,
         );
         let scope = scope();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         async move {
             if !wanted {
                 return None;

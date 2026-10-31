@@ -242,7 +242,7 @@ async fn sync_while_a_pass_runs_says_it_is_already_checking() {
     assert!(!page.contains(super::ALREADY_SYNCING), "said unasked");
 
     dom.in_scope(ScopeId::APP, || {
-        super::sync_now(&crate::ui::view::Shell::default());
+        super::sync_now(&mail_ui_kit::view::Shell::default());
     });
     // The toast is quire's, and its host lays it out a frame after the push.
     let mut page = String::new();

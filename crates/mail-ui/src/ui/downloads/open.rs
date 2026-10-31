@@ -31,7 +31,7 @@ impl NotOpened {
     pub(in crate::ui) fn told(self, said: &str) -> String {
         match self {
             NotOpened::Said(sentence) => sentence,
-            NotOpened::Failed(why) => crate::ui::remedy::plainly(said, why),
+            NotOpened::Failed(why) => mail_ui_kit::remedy::plainly(said, why),
         }
     }
 }

@@ -327,9 +327,11 @@ fn a_one_time_code_is_offered_under_the_header_and_copied() {
             );
         },
         move |_, contexts| {
-            contexts.with(mail_ui::ui::native::SensitiveCopy::with_sink(move |text| {
-                sink.lock().unwrap().push(text.to_owned());
-            }))
+            contexts.with(mail_ui_kit::sensitive_copy::SensitiveCopy::with_sink(
+                move |text| {
+                    sink.lock().unwrap().push(text.to_owned());
+                },
+            ))
         },
     );
     const LINE: &str = ".reader-body .otp-code";

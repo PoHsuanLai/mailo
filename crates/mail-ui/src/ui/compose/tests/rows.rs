@@ -237,7 +237,7 @@ fn each_rows_menu_sets_it_back_first() {
     let now = at(0);
     let mut page = page_of("");
     page.when = super::super::page::When::Tomorrow;
-    let first = |items: Vec<crate::ui::menu::MenuItem>| {
+    let first = |items: Vec<mail_ui_kit::menu::MenuItem>| {
         items
             .first()
             .map(|item| (item.key.clone(), item.name.clone()))

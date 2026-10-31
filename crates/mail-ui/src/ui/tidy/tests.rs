@@ -1,6 +1,5 @@
 use super::{Age, candidates};
 use crate::ui::app::App;
-use crate::ui::clock::WallClock;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, PRIMARY, chord, click, dispatching, pick_named, rebuild_into, settle,
     thread_like, work,
@@ -9,6 +8,7 @@ use chrono::{TimeDelta, Utc};
 use dioxus::prelude::*;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_kit::clock::WallClock;
 use std::sync::Arc;
 
 /// The fixture's one read conversation that nobody starred: Sam's notes are read but starred.

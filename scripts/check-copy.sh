@@ -2,7 +2,7 @@
 # Every word the window shows lives in crates/mail-ui-model/src/copy/, one file per kind (buttons,
 # menus, headers, titles, tooltips, accessible names, fields, toasts, status lines, empty states,
 # confirmations, errors). This holds the literals still written elsewhere under
-# crates/mail-ui/src/ui and in the rest of crates/mail-ui-model/src to a ratchet: scripts/copy-literals.txt holds "<file> <count>", and the
+# crates/mail-ui/src/ui, crates/mail-ui-kit/src and in the rest of crates/mail-ui-model/src to a ratchet: scripts/copy-literals.txt holds "<file> <count>", and the
 # check fails when a file's count rises (or a file not listed has one), and when a count falls
 # until that file says so. A new word goes in copy/ and is named from there.
 #
@@ -22,7 +22,7 @@ COUNT=(python3 -I scripts/copy-literals.py)
 
 case "${1:-}" in
   --print) exec "${COUNT[@]}" ;;
-  --show) exec "${COUNT[@]}" --show "${2:?a file under crates/mail-ui/src/ui or crates/mail-ui-model/src}" ;;
+  --show) exec "${COUNT[@]}" --show "${2:?a file under crates/mail-ui/src/ui, crates/mail-ui-kit/src or crates/mail-ui-model/src}" ;;
   "") ;;
   *) echo "usage: $0 [--print | --show <file>]" >&2; exit 2 ;;
 esac

@@ -10,10 +10,10 @@
 
 use super::{Reader, ReaderIn};
 use crate::ui::compose::{self, ComposerPage, PageKind};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::overlays::empty_state::{EmptyForm, EmptyState};
 use mail_domain::ThreadId;
+use mail_ui_kit::view::Shell;
 
 /// Draw the open conversation with the reply under it, or the composer's page, or, with nothing
 /// open, the empty state.

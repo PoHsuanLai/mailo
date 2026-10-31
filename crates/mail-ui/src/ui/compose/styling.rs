@@ -10,15 +10,15 @@ use ds::components::menus::pull_down_button::PullDownButton;
 use ds::prelude::*;
 use ds::root::common::Common;
 
-use super::super::menu::{MenuItem, Right, menu_items};
-use super::super::press::on_primary;
 use super::float::commit;
 use super::page::{Float, Page};
-use crate::ui::actions::{Own, hint_own};
 use mail_editor::{
     Align, Marks, Nest, Op, Range, TextColor, TextSize, align_at, indent, marks_at_start, quote,
     step_size, tab,
 };
+use mail_ui_kit::actions::{Own, hint_own};
+use mail_ui_kit::menu::{MenuItem, Right, menu_items};
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::copy;
 
 /// The selection, or the caret as an empty range.
@@ -339,5 +339,5 @@ fn back_to_bar(mut page: Signal<Page>) {
     if page.peek().float == Float::Colour {
         page.write().float = Float::Closed;
     }
-    crate::ui::host::Host::focus_next_frame(".c-body");
+    mail_ui_kit::host::Host::focus_next_frame(".c-body");
 }

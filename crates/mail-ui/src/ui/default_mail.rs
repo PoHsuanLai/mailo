@@ -10,9 +10,6 @@
 //! ([`FILE_NAME`]), beside Today's file. It waits for an account, so a first run's Add Account is
 //! not interrupted by it.
 
-use crate::ui::appearance::WindowDirs;
-use crate::ui::press::on_primary;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
@@ -20,6 +17,9 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_os::mail_handler::{Handler, Made, MailHandlers};
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 use std::path::Path;
 

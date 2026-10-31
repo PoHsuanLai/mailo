@@ -9,10 +9,10 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
     Filter, MailboxRef, PageReq, Property, Query, RemoteRef, Sort, SortDir, SyncCursor, ThreadId,
 };
-use mail_ui::ui::appearance::WindowDirs;
 use mail_ui::ui::ask::{Inbox, Open, Thread};
 use mail_ui::ui::native::{ActivationToken, Requests};
-use mail_ui::ui::space::{self, Mail};
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::space::{self, Mail};
 use porter_core::AccountId;
 use tokio::sync::mpsc::UnboundedSender;
 

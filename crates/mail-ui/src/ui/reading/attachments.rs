@@ -37,13 +37,13 @@ use mail_client::fetch::{Download, DownloadEffect, DownloadEvent};
 use mail_client::message::Looks;
 use mail_domain::{BlobId, MessageId, Retry};
 
-use super::super::text::{AttachmentRow, Kept};
 use super::fetch::{self, Again};
 use super::thumb::Thumb;
-use crate::ui::common::classed;
-use crate::ui::pick::{Ask, choose};
 use crate::ui::reauth::{Reauth, SIGN_IN};
-use crate::ui::view::Shell;
+use mail_ui_kit::common::classed;
+use mail_ui_kit::pick::{Ask, choose};
+use mail_ui_kit::text::{AttachmentRow, Kept};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 type Downloads = Signal<HashMap<usize, Download>>;
@@ -191,7 +191,7 @@ pub(super) fn Attachments(
                     label,
                     common: Common { aria_label: Some(format!("{label} {name}")), ..Common::default() },
                     availability: if busy { Availability::Busy } else { Availability::Enabled },
-                    onclick: super::super::press::on_primary(move || {
+                    onclick: mail_ui_kit::press::on_primary(move || {
                         let dir = crate::ui::files::save_dir();
                         saved_saver.save(saved_part.clone(), dir);
                     }),
@@ -211,7 +211,7 @@ pub(super) fn Attachments(
                             Button {
                                 label: mail_ui_model::copy::controls::TRY_AGAIN,
                                 common: Common { aria_label: Some(mail_ui_model::copy::aria::try_again_to_download(&name)), ..Common::default() },
-                                onclick: super::super::press::on_primary(move || {
+                                onclick: mail_ui_kit::press::on_primary(move || {
                                     let dir = crate::ui::files::save_dir();
                                     again_saver.save(again_part.clone(), dir);
                                 }),
@@ -221,7 +221,7 @@ pub(super) fn Attachments(
                             Button {
                                 label: SIGN_IN,
                                 common: Common { aria_label: Some(format!("{SIGN_IN} to {sign_in_account}")), ..Common::default() },
-                                onclick: super::super::press::on_primary({
+                                onclick: mail_ui_kit::press::on_primary({
                                     let sign_in_account = sign_in_account.clone();
                                     move || reauth.sign_in(&sign_in_account, need)
                                 }),
@@ -284,7 +284,7 @@ pub(super) fn Attachments(
                         label: copy::controls::SAVE_ALL,
                         availability: if busy { Availability::Busy } else { Availability::Enabled },
                         common: Common { id: Some(format!("{SAVE_ALL_ID}-{message}")), ..Common::default() },
-                        onclick: super::super::press::on_primary({
+                        onclick: mail_ui_kit::press::on_primary({
                             let parts = parts.clone();
                             move || all.save_all_to(parts.clone())
                         }),
@@ -399,7 +399,7 @@ fn save_all(saver: &Saver, parts: Vec<Part>, dir: PathBuf) {
     if begun.is_empty() {
         return;
     }
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let looks = saver.looks.clone();
     let fetchers = fetch::fetchers();
     let (message, body, toasts) = (saver.message, saver.body, saver.toasts);
@@ -519,7 +519,7 @@ fn start(saver: &Saver, part: Part, dir: PathBuf) {
         return;
     }
     let saving = saving_for(&part);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let fetchers = fetch::fetchers();
     spawn(async move {
         // `spawn_blocking`, not this task: a fetch waits on the application's runtime

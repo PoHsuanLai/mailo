@@ -5,9 +5,9 @@
 //! window of their own. This is only the part that draws: it reads the queue on the thread that
 //! draws and shows each ask as a click on its row would.
 
-use super::view::Shell;
-use crate::ui::space::Handle;
 use dioxus::prelude::*;
+use mail_ui_kit::space::Handle;
+use mail_ui_kit::view::Shell;
 
 /// Read what the running window is asked, on the thread that draws: show each ask in this
 /// window (`shell`, as a click on its row would), in a Space that shows its account (`spaces`

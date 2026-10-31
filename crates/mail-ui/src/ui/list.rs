@@ -4,21 +4,14 @@
 //! ask for another page. Split from [`super::app`]. The queries stay in
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
-use super::common::classed;
-use super::data::{AccountRow, syncs_nothing};
-use super::list_search::{Marking, RowHit, Scope, row_hit};
-use super::motion::{Ghost, Toast};
-use super::ops::{Writes, open_composer};
 use super::page::ListMore;
 use super::picks::PickBar;
-use super::press::on_primary;
 use super::row::listed::Listed;
 use super::row::{AccountMark, ListRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
 use crate::ui::fetching::{Fetching, HasRows, ListFace, Need, list_face};
 use crate::ui::reauth::{Reauth, SIGN_IN};
-use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
 use ds::components::app::thread_height::{ThreadLines, thread_card_gap, thread_card_height};
 use ds::components::chrome::toolbar::view::Toolbar;
@@ -31,6 +24,13 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::fetch::Link;
 use mail_client::provider::provider;
 use mail_domain::*;
+use mail_ui_kit::common::classed;
+use mail_ui_kit::data::{AccountRow, syncs_nothing};
+use mail_ui_kit::list_search::{Marking, RowHit, Scope, row_hit};
+use mail_ui_kit::motion::{Ghost, Toast};
+use mail_ui_kit::ops::{Writes, open_composer};
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::{Nothing, Shell};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::collections::BTreeMap;
@@ -140,12 +140,12 @@ pub(super) fn ThreadList(
     /// Whether the client could not read the rows (`list_query::ListView::failed`).
     failed: Memo<bool>,
 ) -> Element {
-    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
+    let every = mail_ui_kit::live::use_live(|| mail_client::query::Accounts);
     let rows = use_memo(move || {
         every
             .read()
             .value()
-            .map(|accounts| crate::ui::data::rows_of(accounts))
+            .map(|accounts| mail_ui_kit::data::rows_of(accounts))
             .unwrap_or_default()
     });
     // Each account's server asked for a searched line, and what it answered.
@@ -161,7 +161,7 @@ pub(super) fn ThreadList(
         let listed: Vec<ThreadId> = threads.read().iter().map(|t| t.id).collect();
         found_threads(&asked.read(), &line, &listed)
     });
-    let summaries = crate::ui::live::use_live(move || mail_client::query::Summaries(hits()));
+    let summaries = mail_ui_kit::live::use_live(move || mail_client::query::Summaries(hits()));
     // Only the hits asked for now: while the answer to a new line is read, the last one's is
     // not drawn under it.
     let found = use_memo(move || {
@@ -227,7 +227,7 @@ pub(super) fn ThreadList(
             .collect()
     };
     let server_rows = found();
-    let state = use_hook(super::motion::motion);
+    let state = use_hook(mail_ui_kit::motion::motion);
     let shown = rows_of(threads(), &messages.read());
     let keys: Vec<ThreadId> = shown.iter().map(|row| row.summary.id).collect();
     let picking = !shell.read().picked.chosen(&keys).is_empty();
@@ -291,7 +291,7 @@ pub(super) fn ThreadList(
     let mut lines: std::collections::HashMap<Slot, ThreadLines> = std::collections::HashMap::new();
     let composing = shell.read().composing.as_ref().map(|open| open.draft);
     let now = chrono::Utc::now();
-    let hours = super::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     // Every row, a conversation or a draft, is the one `ListRow`, drawn from its `RowModel`.
     let mut push_row = |slot: Slot,
                         listed: Listed,
@@ -469,7 +469,7 @@ pub(super) fn ThreadList(
         Some(rsx! {
             Button {
                 label: SIGN_IN,
-                common: crate::ui::sidebar::tagged("sign-in", "mailbox"),
+                common: mail_ui_kit::common::tagged("sign-in", "mailbox"),
                 onclick: on_primary(move || reauth.sign_in(&name, need)),
             }
         })
@@ -516,7 +516,7 @@ pub(super) fn ThreadList(
                                 label: copy::aria::SHOW_SIDEBAR,
                                 icon: Some(IconSource::Glyph(Icon::PanelLeft)),
                                 title: Some(copy::tooltips::SHOW_SIDEBAR.to_owned()),
-                                title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::ToggleSidebar),
+                                title_shortcut: mail_ui_kit::actions::tip_standard(chordkit::StandardAction::ToggleSidebar),
                                 onclick: on_primary(move || side_hidden.set(false)),
                             }
                         }
@@ -699,9 +699,9 @@ fn PlaceTools(
                 label: copy::aria::NEW_MESSAGE,
                 icon: Some(IconSource::Glyph(Icon::Pen)),
                 title: Some(copy::tooltips::NEW_MESSAGE.to_owned()),
-                title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::New),
+                title_shortcut: mail_ui_kit::actions::tip_standard(chordkit::StandardAction::New),
                 onclick: on_primary(move || {
-                    let client = crate::ui::live::client();
+                    let client = mail_ui_kit::live::client();
                     if open_composer(&client, shell, Writes::New).is_ok() {
                     }
                 }),

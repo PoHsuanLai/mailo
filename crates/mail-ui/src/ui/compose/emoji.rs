@@ -19,7 +19,7 @@ use super::desk::Desk;
 use super::float::{insert_emoji, pick_emoji};
 use super::page::Page;
 use crate::ui::emoji::{self, Emoji, Group, recent};
-use crate::ui::host::Host;
+use mail_ui_kit::host::Host;
 
 /// Cells per row of the picker's grid: as wide as the ten tabs over it.
 const COLUMNS: u8 = 10;

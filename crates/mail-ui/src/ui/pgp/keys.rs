@@ -18,10 +18,10 @@ use mail_client::prelude::SigningStore;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
 use std::path::{Path, PathBuf};
 
-use super::super::data::AccountRow;
 use super::certs::CertJob;
 use super::{Seams, short, who};
 use mail_client::pgp::WithSecret;
+use mail_ui_kit::data::AccountRow;
 
 pub(in crate::ui) use super::keys_page::{KeysPage, Whose};
 
@@ -66,7 +66,7 @@ pub(in crate::ui) enum Done {
     Password(PathBuf),
     /// A key or a certificate with no secret half was deleted: what the page says, with an Undo
     /// that puts it back.
-    Gone(String, Box<crate::ui::motion::Restore>),
+    Gone(String, Box<mail_ui_kit::motion::Restore>),
 }
 
 /// Do `job`. Blocks — on the keyring, a file dialog, the disk — so the page runs it on a
@@ -118,7 +118,7 @@ pub(in crate::ui) fn work(client: &Client, seams: &Seams, job: Job) -> Result<Do
             if key.secret == SecretHeld::Absent {
                 return Ok(Done::Gone(
                     said,
-                    Box::new(crate::ui::motion::Restore::Key(key)),
+                    Box::new(mail_ui_kit::motion::Restore::Key(key)),
                 ));
             }
             said

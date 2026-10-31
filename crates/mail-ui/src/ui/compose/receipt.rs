@@ -10,8 +10,8 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_domain::ReceiptRequest;
 
-use super::super::menu::{MenuItem, Right};
 use super::page::{Float, Page};
+use mail_ui_kit::menu::{MenuItem, Right};
 
 /// Send ▾'s key for the receipt item.
 pub(in crate::ui) const KEY: &str = "receipt";

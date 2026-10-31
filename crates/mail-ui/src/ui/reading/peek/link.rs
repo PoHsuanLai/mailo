@@ -11,7 +11,7 @@ use ds::style::icon::family::PlateFamily;
 use ds::style::icon::render::IconPx;
 use mail_client::trust::Destination;
 
-use crate::ui::view::{LinkCard, Shell};
+use mail_ui_kit::view::{LinkCard, Shell};
 use mail_ui_model::copy;
 
 /// What the card says of a link: a title, the site, and a warning when the text lies.
@@ -54,7 +54,7 @@ pub(super) fn said(card: &LinkCard) -> Said {
 /// Go where the link goes, as a click on it would: through the window's frames' opener, which
 /// takes only an address already checked.
 pub(super) fn open(card: &LinkCard) {
-    if let Some(menus) = try_consume_context::<crate::ui::original::FrameMenus>() {
+    if let Some(menus) = try_consume_context::<mail_ui_kit::original::FrameMenus>() {
         menus.open(&card.href);
     }
 }
@@ -81,23 +81,23 @@ pub(super) fn LinkPeek(card: LinkCard, shell: Signal<Shell>) -> Element {
                 }
                 h2 { class: "peek-link-title", "{title}" }
                 p { class: "peek-link-site", "{site}" }
-                p { class: "peek-link-url", {crate::ui::hover::url_spans(&href)} }
+                p { class: "peek-link-url", {mail_ui_kit::hover::url_spans(&href)} }
                 if let Some(warning) = warning {
                     InlineBanner { severity: Severity::Warn, text: warning }
                 }
                 div { class: "peek-link-actions",
                     Button {
                         label: copy::controls::COPY_LINK.to_owned(),
-                        onclick: crate::ui::press::on_primary({
+                        onclick: mail_ui_kit::press::on_primary({
                             let href = href.clone();
-                            move || super::pressed(|| crate::ui::host::Host::copy(&href))
+                            move || super::pressed(|| mail_ui_kit::host::Host::copy(&href))
                         }),
                     }
                     Button {
                         answers: Answers::Return,
                         label: copy::controls::OPEN_LINK.to_owned(),
-                        title_shortcut: crate::ui::actions::open_in_app_tip(),
-                        onclick: crate::ui::press::on_primary({
+                        title_shortcut: mail_ui_kit::actions::open_in_app_tip(),
+                        onclick: mail_ui_kit::press::on_primary({
                             let card = card.clone();
                             move || {
                                 open(&card);

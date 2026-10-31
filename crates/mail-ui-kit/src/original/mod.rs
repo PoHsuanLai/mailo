@@ -1,0 +1,140 @@
+//! The reader's Original view: the sender's sanitized markup in a document of its own.
+//!
+//! The Original is an `<iframe srcdoc>` (`reading/blocks.rs`'s `Sandbox`), never inline HTML.
+//! On Blitz that element builds a separate, sealed document: no shared DOM, no shared cascade,
+//! no script engine anywhere in the program. What it may reach is mailo's to say:
+//! - [`Consent`]: the reader's consent to remote images, as the network reads it;
+//! - `net.rs`: the frame's network, refusing everything the consent does not admit;
+//! - `links.rs`: a link clicked in the frame, opened in the browser and never in the frame, and
+//!   the link under the pointer in a frame, for the reader's link pill ([`FramePill`]), and an
+//!   image clicked in a frame, for the reader's Peek ([`FrameImages`]);
+//! - [`ReaderNet`]: how mailo itself fetches the Reader view's consented images, which
+//!   the window's own document may not (`reading/remote.rs`).
+//!
+//! On Blitz the Original view is a sealed document, and ammonia is still the boundary.
+
+mod consent;
+mod links;
+mod net;
+
+pub use consent::Consent;
+pub use consent::Holder;
+pub use links::LinkAsked;
+pub use links::{Browse, FrameImages, FrameMenus, FramePill};
+pub use net::data_uri;
+pub use net::follow as follow_privacy;
+pub use net::{Fetch, FetchImage, Got};
+
+/// The Reader view's image fetcher, as the window's root context. Cloning shares it.
+#[derive(Clone)]
+pub struct ReaderNet(pub std::sync::Arc<dyn FetchImage>);
+
+impl std::fmt::Debug for ReaderNet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ReaderNet")
+    }
+}
+
+/// What the window's Original frames are allowed: the consent they are held to, their network
+/// and what their links do. Built once per window, and the same for a test's harness.
+#[derive(Clone)]
+pub struct Original {
+    consent: Consent,
+    net: std::sync::Arc<net::MailNet>,
+    links: ds_blitz::FrameLinks,
+    pill: FramePill,
+    menus: FrameMenus,
+    clicked: FrameImages,
+    images: ReaderNet,
+}
+
+impl std::fmt::Debug for Original {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Original")
+            .field("consent", &self.consent)
+            .field("links", &self.links)
+            .finish()
+    }
+}
+
+impl Original {
+    /// Frames whose admitted images `fetch` fetches and whose links `browse` opens. The Reader
+    /// view fetches nothing until [`Original::with_images`] says what fetches for it.
+    pub fn new(fetch: std::sync::Arc<dyn Fetch>, browse: std::sync::Arc<dyn Browse>) -> Self {
+        let consent = Consent::new();
+        let (pill, hovered) = links::FramePill::new();
+        let menus = FrameMenus::new(browse.clone());
+        let (clicked, clicks) = FrameImages::new();
+        Original {
+            net: std::sync::Arc::new(net::MailNet::new(consent.clone(), fetch)),
+            links: links::frame_links(browse, hovered, menus.clone(), clicks),
+            pill,
+            menus,
+            clicked,
+            images: ReaderNet(std::sync::Arc::new(net::Refuse)),
+            consent,
+        }
+    }
+
+    /// These frames, with `images` fetching the Reader view's consented images.
+    pub fn with_images(mut self, images: std::sync::Arc<dyn FetchImage>) -> Self {
+        self.images = ReaderNet(images);
+        self
+    }
+
+    /// The window's: the web, reached on `runtime`, for the frames and the Reader view alike, and
+    /// the system browser.
+    pub fn window(runtime: tokio::runtime::Handle) -> Self {
+        let web = std::sync::Arc::new(net::Web::on(runtime));
+        Original::new(web.clone(), std::sync::Arc::new(links::System)).with_images(web)
+    }
+
+    /// The Reader view's image fetcher, as the window's root context.
+    pub fn images(&self) -> ReaderNet {
+        self.images.clone()
+    }
+
+    /// The consent, as the window's root context: the reader writes it.
+    pub fn consent(&self) -> Consent {
+        self.consent.clone()
+    }
+
+    /// The network policy: every request beyond `data:` and the app's own `file:` is mailo's.
+    pub fn net(&self) -> ds_blitz::NetPolicy {
+        ds_blitz::NetPolicy::Custom(self.net.clone())
+    }
+
+    /// What a link clicked in a frame does, and where the pointer crossing one is reported.
+    pub fn links(&self) -> ds_blitz::FrameLinks {
+        self.links.clone()
+    }
+
+    /// The link under the pointer in a frame, as the window's root context: the reader's link
+    /// pill reads it.
+    pub fn pill(&self) -> FramePill {
+        self.pill.clone()
+    }
+
+    /// The link a context menu was last asked over in a frame, as the window's root context: the
+    /// reader's Copy Link menu takes it.
+    pub fn menus(&self) -> FrameMenus {
+        self.menus.clone()
+    }
+
+    /// The image last clicked in a frame, as the window's root context: the reader that drew the
+    /// frame opens it in Peek.
+    pub fn clicked_images(&self) -> FrameImages {
+        self.clicked.clone()
+    }
+
+    /// The root contexts the window's own `launch` gives it beside the net and the links: what
+    /// a test's `HarnessConfig` takes through `with_contexts`, with `net()` and `links()`.
+    pub fn contexts(&self) -> ds_blitz::RootContexts {
+        ds_blitz::RootContexts::new()
+            .with(self.consent())
+            .with(self.pill())
+            .with(self.menus())
+            .with(self.clicked_images())
+            .with(self.images())
+    }
+}

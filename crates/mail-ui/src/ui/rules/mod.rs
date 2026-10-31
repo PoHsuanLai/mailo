@@ -29,14 +29,14 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::root::common::Common;
 
-use super::common::Told;
-use super::data::AccountRow;
 use super::files::{Phase, run};
-use crate::ui::view::{RulesAt, Shell};
 use editor::RulePage;
 use list::RulesList;
 use mail_client::rules::server::AwayServer;
 use mail_domain::Rule;
+use mail_ui_kit::common::Told;
+use mail_ui_kit::data::AccountRow;
+use mail_ui_kit::view::{RulesAt, Shell};
 use mail_ui_model::copy;
 use server::{AwaySetter, Pusher, put, reach, reach_away, set_away};
 pub(in crate::ui) use vacation::{VacationPage, back as vacation_back};
@@ -70,7 +70,7 @@ pub(super) fn back(mut shell: Signal<Shell>) {
 /// The page: the list at its root, a rule's page or the vacation reply's over it.
 #[component]
 pub(in crate::ui) fn RulesPage(shell: Signal<Shell>) -> Element {
-    let rows = super::data::use_account_rows()();
+    let rows = mail_ui_kit::data::use_account_rows()();
     let chosen = shell.read().rules.account.clone();
     let account = chosen
         .and_then(|id| rows.iter().find(|row| row.id == id))
@@ -94,7 +94,7 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>) -> Element {
         RulesAt::List => copy::titles::RULES.to_owned(),
         RulesAt::Rule(None) => copy::titles::NEW_RULE.to_owned(),
         RulesAt::Rule(Some(id)) => {
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             named
                 .clone()
                 .and_then(|account| client.stored().rules(account).ok())
@@ -133,7 +133,7 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>) -> Element {
 /// Apply `rule` to the mail already here, as `mailo rules run` does, its bar in `phase`; the
 /// window's lists follow once it ends.
 fn apply(rule: Rule, phase: Signal<Phase>, mut running: Signal<String>) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let of = client
         .rules_manage()
         .conversations(rule.account.clone(), Utc::now());
@@ -154,7 +154,7 @@ fn push(row: AccountRow, mut said: Said) {
         log::debug!("{}: no server to put the rules on: {why}", row.address);
         return;
     }
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let push = try_consume_context::<Pusher>()
         .unwrap_or_else(Pusher::server)
         .0;
@@ -182,7 +182,7 @@ fn push_away(row: AccountRow, mut said: Said) {
             return;
         }
     }
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let set = try_consume_context::<AwaySetter>()
         .unwrap_or_else(AwaySetter::server)
         .0;

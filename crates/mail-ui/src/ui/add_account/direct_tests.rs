@@ -2,13 +2,12 @@
 //! says, and the Space menu's Add Account end to end with a sign-in of the test's.
 
 use super::direct::{
-    AddPick, DirectSignIns, Entry, SignInDirectly, Signing, add_menu, entry, entry_for_plan,
+    AddPick, DirectSignIns, Entry, Retry, SignInDirectly, Signing, add_menu, entry, entry_for_plan,
     offered_redirects, picked, redirects, told,
 };
 use super::{AddAccountWindows, Ask, Join, OpenAddAccount};
 use crate::ui::fixtures::settle_quiet_seen;
 use crate::ui::fixtures::{dispatching, empty, rebuild_into};
-use crate::ui::motion::Follow;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use ds::prelude::MenuItem;
@@ -136,26 +135,26 @@ fn the_toast_says_how_it_ended_in_plain_words() {
         &'a str,
         Mode,
         Result<String, SignInError>,
-        Option<(&'a str, Follow)>,
+        Option<(&'a str, Option<Retry>)>,
     );
     let cases: Vec<Case> = vec![
         (
             "added",
             Mode::Add,
             Ok("you@example.test".to_owned()),
-            Some(("Added you@example.test", Follow::Nothing)),
+            Some(("Added you@example.test", None)),
         ),
         (
             "signed in again",
             again.clone(),
             Ok("you@example.test".to_owned()),
-            Some(("Signed in to you@example.test", Follow::Nothing)),
+            Some(("Signed in to you@example.test", None)),
         ),
         (
             "closed in the browser",
             Mode::Add,
             Err(SignInError::Declined),
-            Some(("Sign-in cancelled", Follow::Nothing)),
+            Some(("Sign-in cancelled", None)),
         ),
         // Replaced by another pick, or never heard back from: nothing was on screen waiting.
         ("replaced", Mode::Add, Err(SignInError::Cancelled), None),
@@ -166,7 +165,7 @@ fn the_toast_says_how_it_ended_in_plain_words() {
             Err(SignInError::NoClient(google)),
             Some((
                 "Mail has no sign-in set up for Google.",
-                Follow::SignIn(super::Retry::Window(Ask {
+                Some(Retry::Window(Ask {
                     address: Some("you@example.test".to_owned()),
                     join: Join::Nowhere,
                 })),
@@ -477,7 +476,7 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         // The keys' seams too: no lookup and no keyring of the user's.
         let looked = dom.in_scope(ScopeId::APP, || {
             let seams = crate::ui::pgp::seams();
-            (seams.lookup)(&crate::ui::live::client(), "ada@example.test")
+            (seams.lookup)(&mail_ui_kit::live::client(), "ada@example.test")
         });
         assert!(looked.is_err(), "{name}: a lookup was made");
         if !*recorded {

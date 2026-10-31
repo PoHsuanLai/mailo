@@ -67,7 +67,7 @@ const SIZE: (u32, u32) = (760, 720);
 /// Open `thread` in a window of its own, titled with its subject. A conversation the client no
 /// longer has opens nothing.
 pub(in crate::ui) fn open_in_window(thread: ThreadId) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let Ok(loaded) = client.stored().thread(thread) else {
         return;
     };
@@ -106,11 +106,11 @@ fn quire(ask: Ask) {
         }
         Err(why) => {
             log::warn!("a conversation's window would not open: {why}");
-            super::motion::tell(
+            mail_ui_kit::motion::tell(
                 mail_ui_model::copy::toasts::would_not_open(
                     mail_ui_model::copy::toasts::A_NEW_WINDOW,
                 ),
-                super::motion::Follow::Nothing,
+                mail_ui_kit::motion::Follow::Nothing,
             );
         }
     }
@@ -121,11 +121,14 @@ pub(in crate::ui) const OPEN_NAME: &str = "Open in new window";
 
 /// The menu row that opens a conversation in its own window, with the key that does it as
 /// `keymap` has it (no key beside it when the keymap binds none).
-pub(in crate::ui) fn menu_item(keymap: &chordkit::Keymap) -> super::menu::MenuItem {
-    let shortcut = super::actions::hint_own(keymap, super::actions::Own::OpenInWindow);
-    super::menu::MenuItem {
-        right: shortcut.map_or(super::menu::Right::None, super::menu::Right::Shortcut),
-        ..super::menu::MenuItem::icon(OPEN_KEY, Icon::Window, OPEN_NAME)
+pub(in crate::ui) fn menu_item(keymap: &chordkit::Keymap) -> mail_ui_kit::menu::MenuItem {
+    let shortcut = mail_ui_kit::actions::hint_own(keymap, mail_ui_kit::actions::Own::OpenInWindow);
+    mail_ui_kit::menu::MenuItem {
+        right: shortcut.map_or(
+            mail_ui_kit::menu::Right::None,
+            mail_ui_kit::menu::Right::Shortcut,
+        ),
+        ..mail_ui_kit::menu::MenuItem::icon(OPEN_KEY, Icon::Window, OPEN_NAME)
     }
 }
 

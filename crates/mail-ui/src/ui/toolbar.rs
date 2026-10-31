@@ -7,7 +7,6 @@
 //! a button is called, looks like or is bound to.
 
 use super::row::act::op_icon;
-use crate::ui::view::Shortcut;
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -15,6 +14,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_domain::OpKind;
+use mail_ui_kit::view::Shortcut;
 
 /// The key that does what `kind` does, for a tooltip's hint. Both sides of a pair share one key,
 /// as the keymap's toggles do. `None` for what no key reaches.
@@ -74,7 +74,7 @@ pub(in crate::ui) fn Tool(
             label: tool.label.to_owned(),
             icon: Some(IconSource::Glyph(tool.icon)),
             title: Some(tool.label.to_owned()),
-            title_shortcut: tool.shortcut.and_then(crate::ui::actions::tip),
+            title_shortcut: tool.shortcut.and_then(mail_ui_kit::actions::tip),
             common: Common { aria_label: aria, ..Common::default() },
             onclick,
         }

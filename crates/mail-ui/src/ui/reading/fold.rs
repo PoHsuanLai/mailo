@@ -9,12 +9,12 @@
 use super::header::{named, when_label};
 use super::sender_face;
 use super::thumb::pressed;
-use crate::ui::common::classed;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::prelude::*;
 use mail_domain::{Message, MessageId};
+use mail_ui_kit::common::classed;
 use mail_ui_model::copy::aria;
 use std::collections::HashSet;
 

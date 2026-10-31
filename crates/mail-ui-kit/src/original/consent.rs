@@ -1,0 +1,198 @@
+//! The reader's consent to remote images, as the network sees it.
+//!
+//! The reader decides, message by message: "Show images" (`Shell::show_remote_images`: per
+//! thread, never persisted, revoked by opening, selecting or closing), or the person's standing
+//! consent in the settings (`reading.remote_images` and its trusted senders, `reading::images`).
+//! This is where that decision is held for whoever answers the
+//! Original frame's requests, which run outside any component: on Blitz, `net.rs`'s `AppNet`.
+//!
+//! What a grant admits is narrow on purpose:
+//! - only `http` and `https`, and only a URL the sanitizer kept in a fetch attribute of one of
+//!   the consented thread's messages ([`mail_client::reader::Reading::frame_fetches`]);
+//! - per message: a frame may fetch only what its own message's markup asks for. Each Original
+//!   frame carries its message's id as its `data-frame-tag`, and the network reads the tag of the
+//!   frame that asked (`net.rs`), so one message's frame cannot fetch another message's image.
+//! - per reader: the tag names the reader that drew the frame too ([`Holder::tag`]), and only
+//!   the reader holding the grant has its frames admitted. A conversation open in a second window
+//!   (`ui/window`) is another reader: it starts without consent even when the first window's
+//!   reader has granted it for the same messages, and its render without consent leaves the
+//!   first window's grant alone.
+//! - while it stands: a new grant, or none, makes every earlier admission stale, and a fetch
+//!   that lands after that is dropped rather than shown.
+
+use mail_domain::{MessageId, ThreadId};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+/// The reader's consent, shared between the reader that grants it and the network that reads it.
+/// A root context on the window; cloning shares it.
+#[derive(Clone, Default)]
+pub struct Consent(Arc<Mutex<Grant>>);
+
+impl std::fmt::Debug for Consent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Consent")
+            .field("granted", &self.granted())
+            .finish()
+    }
+}
+
+/// One reader's claim on the consent: the reader that holds the grant is the one whose closing
+/// takes it back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Holder(u64);
+
+impl Holder {
+    /// The `data-frame-tag` of the frame this reader draws for `message`: which message, and
+    /// whose frame.
+    pub fn tag(self, message: MessageId) -> String {
+        format!("{message}/{}", self.0)
+    }
+
+    /// The reader and the message a frame's tag names; `None` for a tag no reader wrote.
+    pub fn of_tag(tag: &str) -> Option<(Holder, MessageId)> {
+        let (message, holder) = tag.split_once('/')?;
+        let message = uuid::Uuid::parse_str(message).ok()?;
+        Some((Holder(holder.parse().ok()?), MessageId::from_uuid(message)))
+    }
+}
+
+/// A request admitted under one grant. It stands until the grant changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ticket(u64);
+
+#[derive(Default)]
+struct Grant {
+    /// Moved by every change of grant; a [`Ticket`] carries the value it was admitted under.
+    generation: u64,
+    /// Handed out by [`Consent::holder`].
+    holders: u64,
+    /// Who granted what stands now, and for which thread.
+    by: Option<(Holder, ThreadId)>,
+    /// Each consented message and the URLs its frame may fetch, normalised.
+    messages: Vec<(MessageId, Vec<String>)>,
+}
+
+impl Consent {
+    /// Nothing consented to.
+    pub fn new() -> Self {
+        Consent::default()
+    }
+
+    fn grant(&self) -> MutexGuard<'_, Grant> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A name for one reader, to hold and release the grant with.
+    pub fn holder(&self) -> Holder {
+        let mut grant = self.grant();
+        grant.holders = grant.holders.wrapping_add(1);
+        Holder(grant.holders)
+    }
+
+    /// `holder` shows `thread`: with its images allowed (`Some`, each message and what its frame
+    /// fetches), or not (`None`).
+    ///
+    /// Called on every render of the reader, before the render reaches the document, so a frame
+    /// that reloads with the consented markup finds its grant already there. The same grant again
+    /// changes nothing, and admissions under it stay good.
+    pub fn hold(
+        &self,
+        holder: Holder,
+        thread: ThreadId,
+        allowed: Option<Vec<(MessageId, Vec<String>)>>,
+    ) {
+        let mut grant = self.grant();
+        match allowed {
+            None => {
+                if grant.by.is_some_and(|(by, _)| by == holder) {
+                    grant.revoke();
+                }
+            }
+            Some(lists) => {
+                let messages: Vec<(MessageId, Vec<String>)> = lists
+                    .into_iter()
+                    .map(|(id, urls)| (id, urls.iter().filter_map(|url| normal(url)).collect()))
+                    .collect();
+                if grant.by == Some((holder, thread)) && grant.messages == messages {
+                    return;
+                }
+                grant.revoke();
+                grant.by = Some((holder, thread));
+                grant.messages = messages;
+            }
+        }
+    }
+
+    /// `holder` is gone (the reader closed): what it granted is taken back. A grant another
+    /// reader holds is left alone.
+    pub fn release(&self, holder: Holder) {
+        let mut grant = self.grant();
+        if grant.by.is_some_and(|(by, _)| by == holder) {
+            grant.revoke();
+        }
+    }
+
+    /// Whether the frame `holder` drew for `message` may fetch `url` now.
+    pub fn admits(&self, holder: Holder, message: MessageId, url: &str) -> Option<Ticket> {
+        let url = normal(url)?;
+        let grant = self.grant();
+        let (by, _) = grant.by?;
+        if by != holder {
+            return None;
+        }
+        grant
+            .messages
+            .iter()
+            .any(|(id, urls)| *id == message && urls.contains(&url))
+            .then_some(Ticket(grant.generation))
+    }
+
+    /// Whether what `ticket` admitted may still be shown.
+    pub fn stands(&self, ticket: Ticket) -> bool {
+        let grant = self.grant();
+        grant.by.is_some() && grant.generation == ticket.0
+    }
+
+    /// The messages of `thread` whose images are allowed now, and the ticket that says, later,
+    /// whether that still stands. `None` when `thread`'s images are not allowed. For a printout
+    /// of `thread`, which may draw only these messages' images.
+    pub fn thread(&self, thread: ThreadId) -> Option<(Ticket, Vec<MessageId>)> {
+        let grant = self.grant();
+        let (_, granted) = grant.by?;
+        (granted == thread).then(|| {
+            (
+                Ticket(grant.generation),
+                grant.messages.iter().map(|(id, _)| *id).collect(),
+            )
+        })
+    }
+
+    /// Whether any thread's images are allowed now.
+    pub fn granted(&self) -> bool {
+        self.grant().by.is_some()
+    }
+}
+
+impl Grant {
+    fn revoke(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.by = None;
+        self.messages.clear();
+    }
+}
+
+/// `url` as the renderer asks for it, when it is a web address; nothing else is ever admitted.
+///
+/// The sanitizer keeps a URL as the sender wrote it; a renderer asks for it parsed. Parsing both
+/// the same way makes them comparable (`HTTPS://Cdn.Test/a.png` is `https://cdn.test/a.png`).
+fn normal(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    match parsed.scheme() {
+        "http" | "https" => Some(parsed.into()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[path = "consent_tests.rs"]
+mod consent_tests;

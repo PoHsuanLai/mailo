@@ -20,12 +20,8 @@ use super::super::row::menu::{Pick, reader_groups, rows_blocking, with_files};
 use super::super::toolbar::{Tool, ToolButton};
 use super::fetch;
 use crate::ui::downloads::{Origin, Saving};
-use crate::ui::menu::{Floating, MenuItem, Right, anchor_at};
 use crate::ui::menus::FurtherMenus;
-use crate::ui::motion::{Follow, tell};
-use crate::ui::ops::{Composes, Writes, open_composer};
 use crate::ui::unsubscribe::{Confirm, Offer, Phase, ask};
-use crate::ui::view::{FurtherMenu, Opened, Peek, Shell};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
@@ -35,6 +31,10 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
 use mail_client::conversation::says;
 use mail_domain::*;
+use mail_ui_kit::menu::{Floating, MenuItem, Right, anchor_at};
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::ops::{Composes, Writes, open_composer};
+use mail_ui_kit::view::{FurtherMenu, Opened, Peek, Shell};
 use mail_ui_model::copy;
 use mail_ui_model::copy::menus::offered;
 use std::path::{Path, PathBuf};
@@ -173,7 +173,7 @@ pub(super) fn ReaderMore(
     let id = summary.id;
     // Whose mail Block Sender would block: the newest sender who is not the user. Nobody, and
     // the item is left out, when every message is the user's own or the client cannot say.
-    let blocking = crate::ui::live::client();
+    let blocking = mail_ui_kit::live::client();
     let blocking = blocking.blocking().who_to_block(id).ok().flatten();
     let sender = blocking
         .clone()
@@ -249,7 +249,7 @@ pub(super) fn ReaderMore(
                         Pick::Again => compose_on(shell, id, Composes::Again),
                         Pick::Redirect => shell.write().toggle_further(FurtherMenu {
                             thread: id,
-                            further: crate::ui::view::Further::Redirect,
+                            further: mail_ui_kit::view::Further::Redirect,
                             opened: Opened::Reader,
                         }),
                         Pick::SaveFiles => {
@@ -257,8 +257,8 @@ pub(super) fn ReaderMore(
                                 shell.write().save = Some(message);
                             }
                         }
-                        Pick::Headers => super::source::ask(shell, id, super::Raw::Headers),
-                        Pick::Source => super::source::ask(shell, id, super::Raw::Source),
+                        Pick::Headers => super::source::ask(shell, id, mail_ui_kit::view::Raw::Headers),
+                        Pick::Source => super::source::ask(shell, id, mail_ui_kit::view::Raw::Source),
                         // A draft's, never offered here; Flag ▸ only opens its colours.
                         Pick::DeleteDraft | Pick::CancelSending | Pick::Vip | Pick::Flags => {}
                     }
@@ -296,14 +296,14 @@ fn block_sender(
     account: porter_core::AccountId,
     email: &str,
 ) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     match client.blocking().block(account, email) {
         Ok(blocked) => {
             let rule = match blocked {
                 mail_client::rules::block::Blocked::Made(rule) => Some(rule),
                 mail_client::rules::block::Blocked::Already(_) => None,
             };
-            crate::ui::motion::spam_and_offer_unblock(
+            mail_ui_kit::motion::spam_and_offer_unblock(
                 &client,
                 shell,
                 thread,
@@ -312,7 +312,7 @@ fn block_sender(
             );
         }
         Err(why) => tell(
-            copy::toasts::not_blocked(email, &crate::ui::remedy::told(why)),
+            copy::toasts::not_blocked(email, &mail_ui_kit::remedy::told(why)),
             Follow::Nothing,
         ),
     }
@@ -321,7 +321,7 @@ fn block_sender(
 /// Open the composer on `what` for `thread`, from the ⋯ or ⌘K; a refusal (no list address, no
 /// body yet) is said in a toast.
 pub(in crate::ui) fn compose_on(shell: Signal<Shell>, thread: ThreadId, what: Composes) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     // The peek ends before the composer opens: it writes the shell.
     let writes = Writes::answering(&shell.peek(), thread, what);
     match open_composer(&client, shell, writes) {
@@ -335,8 +335,8 @@ pub(in crate::ui) fn compose_on(shell: Signal<Shell>, thread: ThreadId, what: Co
 fn with_keys(
     items: Vec<ds::components::menus::item::item::MenuItem<Pick>>,
 ) -> Vec<ds::components::menus::item::item::MenuItem<Pick>> {
-    use crate::ui::actions::{Own, tip_own};
     use ds::components::menus::item::item::MenuItem as Row;
+    use mail_ui_kit::actions::{Own, tip_own};
     items
         .into_iter()
         .map(|item| {
@@ -428,7 +428,7 @@ fn download(thread: ThreadId) {
     // The bytes are here already, so nothing shows as being saved: each file joins the list
     // when it is written.
     let saving = Saving::quick();
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     let dir = crate::ui::files::save_dir();
     spawn(async move {

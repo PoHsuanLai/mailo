@@ -8,7 +8,6 @@
 //! and the foot's ⋯ (`foot.rs`). Every choice is a quire `Menu` and every input a quire
 //! `TextField`.
 
-use super::super::press::on_primary;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
@@ -23,12 +22,10 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_client::Client;
+use mail_ui_kit::press::on_primary;
 
 use dioxus::prelude::*;
 
-use super::super::menu::{
-    Floating, MenuItem, MenuKey, Right, Tile, anchor_at, menu_items, menu_key,
-};
 use super::super::menus::snooze_help;
 use super::later::{PICK_KEY, PICK_LABEL};
 use super::page::{Float, Guard, List, Page, PageKind, When};
@@ -36,10 +33,13 @@ use super::protection::ProtectionRow;
 use super::receipt::ReceiptRow;
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use super::remind::RemindRow;
-use crate::ui::actions::{self, Own};
 use crate::ui::provider_chip::ProvChip;
-use crate::ui::view::Shell;
 use mail_client::provider::{provider, service_name};
+use mail_ui_kit::actions::{self, Own};
+use mail_ui_kit::menu::{
+    Floating, MenuItem, MenuKey, Right, Tile, anchor_at, menu_items, menu_key,
+};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 #[component]
@@ -53,7 +53,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
         Guard::NoRecipient(count) => Some(count),
         _ => None,
     };
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     // One address to send from is no choice: the row is drawn only when there is another.
     let senders = offered(&client, &page.read()).len();
     rsx! {
@@ -125,7 +125,7 @@ fn field_of(list: List) -> &'static str {
 /// Draw `list`'s row and put the keyboard in it: its word at the end of the To row, or its key.
 pub(in crate::ui) fn reveal(mut page: Signal<Page>, list: List) {
     page.write().reveal(list);
-    crate::ui::host::Host::focus_after_task(field_of(list));
+    mail_ui_kit::host::Host::focus_after_task(field_of(list));
 }
 
 /// "Cc" or "Bcc" at the end of the To row, until that row is drawn.
@@ -163,7 +163,7 @@ pub(in crate::ui) fn Line(
                 text: label.clone(),
                 role: LabelRole::Secondary,
                 style: LabelStyle::Footnote,
-                common: crate::ui::common::classed("c-line-k"),
+                common: mail_ui_kit::common::classed("c-line-k"),
             }
             div { class: "c-line-v", {children} }
         }
@@ -236,11 +236,11 @@ fn offered(client: &Client, page: &Page) -> Vec<mail_domain::Identity> {
 
 #[component]
 fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let chosen = page.read().identity;
     let open = page.read().float == Float::From;
     let identities = offered(&client, &page.read());
-    let rows = super::super::data::use_account_rows()();
+    let rows = mail_ui_kit::data::use_account_rows()();
     let marks = shell.read().appearance.marks;
     let account_of =
         |identity: &mail_domain::Identity| rows.iter().find(|row| row.id == identity.account);
@@ -334,7 +334,7 @@ fn close(mut page: Signal<Page>, was: &Float) {
 /// Move the draft to the address `key` names, and to its account. Saved first, so nothing typed
 /// is read back over.
 fn move_to(mut page: Signal<Page>, key: &str) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let now = chrono::Utc::now();
     let mut write = page.write();
     write.float = Float::Closed;
@@ -349,7 +349,7 @@ fn move_to(mut page: Signal<Page>, key: &str) {
         client
             .compose()
             .move_draft_to_identity(draft.id, identity, now)
-            .map_err(crate::ui::remedy::told)
+            .map_err(mail_ui_kit::remedy::told)
     });
     match moved {
         Ok(draft) => {
@@ -421,7 +421,7 @@ fn SendsRow(page: Signal<Page>) -> Element {
         return rsx! {};
     }
     let now = chrono::Utc::now();
-    let hours = super::super::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     let items = sends_items(&page.read(), now, &chrono::Local, hours);
     rsx! {
         ChoiceRow {
@@ -589,7 +589,7 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
                 validity,
                 value,
                 oninput: move |value: String| {
-                    let client = crate::ui::live::client();
+                    let client = mail_ui_kit::live::client();
                     typed(&mut page.write(), list, value, &client);
                 },
                 onblur: move |_| {

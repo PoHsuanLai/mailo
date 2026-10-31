@@ -15,8 +15,8 @@ use mail_client::rules::server::AwayServer;
 use mail_domain::AccountPlan;
 use std::sync::Arc;
 
-use super::super::data::AccountRow;
 use mail_client::sync::Configured;
+use mail_ui_kit::data::AccountRow;
 
 /// Install an account's script: [`mail_client::RuleOps::push`], with the takeover decided. Given the
 /// client by `Arc`, which is what a `Mail` is made over.
@@ -36,7 +36,7 @@ impl Pusher {
             client
                 .net()
                 .push_rules(account)
-                .map_err(crate::ui::remedy::told)
+                .map_err(mail_ui_kit::remedy::told)
         }))
     }
 
@@ -70,7 +70,7 @@ impl AwaySetter {
         use mail_client::rules::server::PushDone;
         Self(Arc::new(|client, account| {
             match client.net().put_away(account) {
-                PushDone::NotPushed(why) => Err(crate::ui::remedy::told(why)),
+                PushDone::NotPushed(why) => Err(mail_ui_kit::remedy::told(why)),
                 PushDone::Set { .. } | PushDone::Pushed { .. } => Ok(()),
             }
         }))

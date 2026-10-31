@@ -15,7 +15,7 @@ use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::*;
-use mail_ui::ui::native::{Browse, Fetch, Original};
+use mail_ui_kit::original::{Browse, Fetch, Original};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -202,7 +202,7 @@ struct Window {
 fn contexts(dir: &std::path::Path) -> RootContexts {
     mail_ui::ui::native::contexts(
         mail_client::Client::open(seeded(dir), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         None,
         mail_ui::ui::ask::Open::raise(),

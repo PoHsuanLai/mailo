@@ -15,8 +15,8 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::{Change, ChangeId, Hue, Label, LabelId, Patch};
 
-use crate::ui::menu::anchor_at;
-use crate::ui::motion::{Follow, tell};
+use mail_ui_kit::menu::anchor_at;
+use mail_ui_kit::motion::{Follow, tell};
 use mail_ui_model::copy;
 
 /// The label `id`, on whichever account holds it.
@@ -51,7 +51,7 @@ pub(super) fn choices() -> Vec<Choice<Option<Hue>>> {
 /// Keep `hue` as `label`'s colour, saying only a failure. Written off the thread that draws: the
 /// store's writer may be held by a sync.
 fn keep(label: &Label, hue: Option<Hue>) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let changed = Label {
         color: hue.map(|hue| hue.as_str().to_owned()),
         ..label.clone()

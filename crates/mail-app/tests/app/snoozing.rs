@@ -11,7 +11,7 @@ use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_ui::ui::view;
+use mail_ui_kit::view;
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap()

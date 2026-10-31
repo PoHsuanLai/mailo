@@ -6,13 +6,13 @@ use crate::ui::fixtures::{
     Seen, acct_account, chord, click, dispatching, rebuild_into, seeded, type_into,
 };
 use crate::ui::reading::Reader;
-use crate::ui::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_core::message::{Looks, Read};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_kit::view::Shell;
 use std::sync::Arc;
 use std::time::Duration;
 

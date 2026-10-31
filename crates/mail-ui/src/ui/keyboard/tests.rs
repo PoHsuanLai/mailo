@@ -1,6 +1,6 @@
 use super::caps;
-use crate::ui::keymap::DEFAULTS;
 use ds::prelude::ShortcutKey as Key;
+use mail_ui_kit::keymap::DEFAULTS;
 
 #[test]
 fn a_key_is_drawn_as_the_caps_that_press_it() {

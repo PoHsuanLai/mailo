@@ -12,13 +12,13 @@ use ds::root::common::Common;
 use mail_client::Client;
 use mail_client::when::Clock;
 
-use super::super::common::Told;
-use super::super::data::{AccountRow, use_account_rows};
 use super::super::menus::when_words;
 use super::away::AwayPage;
 use super::server::reach_away;
 use super::{Said, push_away};
-use crate::ui::view::{Shell, VacationAt};
+use mail_ui_kit::common::Told;
+use mail_ui_kit::data::{AccountRow, use_account_rows};
+use mail_ui_kit::view::{Shell, VacationAt};
 use mail_ui_model::copy;
 
 /// The stack's element id: its back buttons are `vacation-pane-back-root` and `-detail`.
@@ -99,10 +99,11 @@ pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
 #[component]
 fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>) -> Element {
     // A reply kept, here or anywhere, moves the store.
-    let _ = crate::ui::live::moved_for(mail_client::Topics::RULES | mail_client::Topics::ACCOUNTS);
-    let client = crate::ui::live::client();
+    let _ =
+        mail_ui_kit::live::moved_for(mail_client::Topics::RULES | mail_client::Topics::ACCOUNTS);
+    let client = mail_ui_kit::live::client();
     let now = Utc::now();
-    let clock = crate::ui::clock::hours();
+    let clock = mail_ui_kit::clock::hours();
     let items: Vec<ListItem<String>> = rows
         .into_iter()
         .map(|row| {

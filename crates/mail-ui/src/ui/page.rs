@@ -9,10 +9,7 @@
 use ds::prelude::*;
 use std::collections::BTreeMap;
 
-use super::menu::anchor_at;
-use super::press::on_primary;
 use crate::ui::fetching::use_status;
-use crate::ui::view::{PageGroup, PageMenu, PageParts, RowPart, Shell, SortKept};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -20,6 +17,9 @@ use ds::host::measure::MountedRef;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{Property, Sort, SortDir, ThreadSummary, Threading};
+use mail_ui_kit::menu::anchor_at;
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::{PageGroup, PageMenu, PageParts, RowPart, Shell, SortKept};
 use mail_ui_model::copy;
 use std::borrow::Borrow;
 
@@ -242,7 +242,7 @@ pub(super) fn more_items(
 /// What the list menu changed, kept in `settings.toml` so the next window opens the same way.
 /// Shown at once whatever the write does; a window with nowhere to write keeps it until it closes.
 fn kept(edit: impl FnOnce(&mut mail_ui_model::settings::WindowSettings)) {
-    if let Err(why) = crate::ui::prefs::change(|settings| edit(&mut settings.window)) {
+    if let Err(why) = mail_ui_kit::prefs::change(|settings| edit(&mut settings.window)) {
         log::warn!("the list's look was not kept: {why}");
     }
 }
@@ -257,15 +257,15 @@ pub(super) fn sort_list(mut shell: Signal<Shell>, sort: Sort) {
     let Some(kept) = shell.write().sort_by(sort) else {
         return;
     };
-    let motion = crate::ui::motion::motion();
+    let motion = mail_ui_kit::motion::motion();
     let write: std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> =
         match &kept {
-            SortKept::View(view) => Box::pin(crate::ui::motion::kept(
+            SortKept::View(view) => Box::pin(mail_ui_kit::motion::kept(
                 mail_client::act::Keep::View(view.clone()),
             )),
             SortKept::Place(key, sort) => {
                 let (key, sort) = (key.clone(), *sort);
-                Box::pin(crate::ui::prefs::change_later(move |settings| {
+                Box::pin(mail_ui_kit::prefs::change_later(move |settings| {
                     settings
                         .window
                         .sorts
@@ -276,7 +276,7 @@ pub(super) fn sort_list(mut shell: Signal<Shell>, sort: Sort) {
     spawn(async move {
         if let Err(why) = write.await {
             shell.write().unsort(&kept, previous);
-            crate::ui::motion::tell_through(motion, copy::status::sort_not_kept(&why));
+            mail_ui_kit::motion::tell_through(motion, copy::status::sort_not_kept(&why));
         }
     });
 }
@@ -385,9 +385,9 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::view::RowPart;
     use chrono::TimeZone;
     use ds::prelude::{AfterPick, Check, MenuItem};
+    use mail_ui_kit::view::RowPart;
 
     use mail_domain::*;
 
@@ -546,7 +546,7 @@ mod tests {
         let parts = PageParts::default();
         let cases: [(Sort, &str); 3] = [
             (
-                crate::ui::view::NEWEST_FIRST,
+                mail_ui_kit::view::NEWEST_FIRST,
                 "Sort By ▸ [✓Date, Sender, Subject, Size, Unread, Starred, -, Oldest First, ✓Newest First]",
             ),
             (

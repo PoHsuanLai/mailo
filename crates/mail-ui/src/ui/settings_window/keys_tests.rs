@@ -1,5 +1,6 @@
-use super::{Control, Pair, control_of, shown, value_of, with_value, word_label};
+use super::{Control, Pair, control_of, shown, value_of, word_label};
 use ds_settings::schema::KeyKind;
+use mail_ui_model::settings::with_value;
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()

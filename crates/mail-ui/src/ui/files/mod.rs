@@ -21,8 +21,8 @@ use ds::components::controls::progress::model::{Progress, ProgressStyle};
 use ds::components::controls::progress::view::ProgressIndicator;
 use ds::prelude::*;
 
-use super::motion::{Follow, tell};
-use crate::ui::view::{FileSheet, Shell};
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::view::{FileSheet, Shell};
 
 /// Where the sheets suggest and start, and Save writes: the downloads directory, unless the
 /// window was handed another one. Tests hand one as a root context, so nothing looks at the real
@@ -33,7 +33,7 @@ pub struct SaveDir(pub std::path::PathBuf);
 /// Where a file is saved without asking: the folder chosen in Settings
 /// (`attachments.downloads_folder`), else the one [`SaveDir`] names.
 pub(in crate::ui) fn save_dir() -> std::path::PathBuf {
-    crate::ui::prefs::current()
+    mail_ui_kit::prefs::current()
         .attachments
         .downloads_in()
         .or_else(|| try_consume_context::<SaveDir>().map(|dir| dir.0))
@@ -56,13 +56,13 @@ pub(in crate::ui) fn open_export(mut shell: Signal<Shell>) {
 }
 
 fn focus() {
-    crate::ui::host::Host::focus_next_frame(".sheet-form input");
+    mail_ui_kit::host::Host::focus_next_frame(".sheet-form input");
 }
 
 /// Close the sheet and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().files = None;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// Whichever sheet is open. Mounted while `shell.files` is `Some`.

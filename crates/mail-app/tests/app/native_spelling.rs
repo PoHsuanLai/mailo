@@ -24,7 +24,8 @@ use crate::drive;
 use crate::native::ms;
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use mail_ui::ui::native::{Configured, Dictionaries};
+use mail_ui::ui::native::Dictionaries;
+use mail_ui_kit::configured::Configured;
 
 /// The two counters every window of the app shares: the store's, and the configuration files'.
 use mail_core::SqliteStore;
@@ -128,9 +129,9 @@ fn contexts(
     let printer = mail_ui::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     mail_ui::ui::native::contexts(
         mail_client::Client::open(Arc::clone(store), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
-        Some(mail_ui::ui::appearance::WindowDirs {
+        Some(mail_ui_kit::appearance::WindowDirs {
             config: dir.join("config"),
             state: dir.join("state"),
         }),

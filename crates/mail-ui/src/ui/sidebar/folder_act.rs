@@ -1,14 +1,14 @@
 //! What a folder action does from the window: through `folder::change`, the one path the CLI
 //! takes too, onto the undo stack, and into words.
-use super::super::motion::record;
 use super::folder_tree::{AccountFolders, Mailboxes, placed};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_client::Client;
 use mail_client::folder::Refusal;
 use mail_client::query::Mailboxes as ClientMailboxes;
 use mail_client::undo::{Undo, reverse_folder};
 use mail_domain::{FolderError, FolderWork, LabelId, MailboxRef, NonEmpty, Subscription};
+use mail_ui_kit::motion::record;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -16,13 +16,13 @@ use porter_core::AccountId;
 /// accounts the client keeps read.
 pub(in crate::ui) fn load(
     accounts: &[mail_client::query::Account],
-    scope: &crate::ui::space::Scope,
+    scope: &mail_ui_kit::space::Scope,
 ) -> Vec<AccountFolders> {
     accounts
         .iter()
         .filter(|account| scope.shows(account.id.clone()))
         .map(|account| AccountFolders {
-            address: crate::ui::data::named(account),
+            address: mail_ui_kit::data::named(account),
             account: account.id.clone(),
             mailboxes: match &account.mailboxes {
                 ClientMailboxes::One { .. } => Mailboxes::One,
@@ -47,7 +47,7 @@ pub(in crate::ui) fn load(
 pub(in crate::ui) fn folder_places(
     accounts: &[mail_client::query::Account],
 ) -> Vec<(String, MailboxRef)> {
-    placed(&load(accounts, &crate::ui::space::Scope::All))
+    placed(&load(accounts, &mail_ui_kit::space::Scope::All))
 }
 
 /// The labels of every account in `scope`: the ones the Labels section draws.
@@ -58,7 +58,7 @@ pub(in crate::ui) fn folder_places(
 /// account's labels.
 pub(in crate::ui) fn labels_in(
     accounts: &[mail_client::query::Account],
-    scope: &crate::ui::space::Scope,
+    scope: &mail_ui_kit::space::Scope,
 ) -> Vec<LabelId> {
     accounts
         .iter()

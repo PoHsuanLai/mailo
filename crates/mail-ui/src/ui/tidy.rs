@@ -6,10 +6,7 @@
 //! a reply. What the sheet lists is what its button archives ([`candidates`] is both), as one
 //! gesture with one undo.
 
-use crate::ui::common::in_card;
-use crate::ui::press::{SheetClose, available, on_primary};
-use crate::ui::view::Shell;
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -26,44 +23,15 @@ use ds::prelude::*;
 use mail_client::Client;
 use mail_client::when::Clock;
 use mail_domain::*;
+use mail_ui_kit::common::in_card;
+use mail_ui_kit::press::{SheetClose, available, on_primary};
+use mail_ui_kit::view::{Age, Shell};
 use mail_ui_model::copy;
 
 /// How many conversations one page of the search reads.
 const PAGE: u32 = 500;
 /// How many of the conversations the sheet names; the count says the rest.
 const SHOWN: usize = 5;
-
-/// How long a read conversation sits in the Inbox before Tidy Up offers to archive it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Age {
-    OneWeek,
-    #[default]
-    TwoWeeks,
-    OneMonth,
-    ThreeMonths,
-}
-
-impl Age {
-    pub const ALL: [Age; 4] = [Age::OneWeek, Age::TwoWeeks, Age::OneMonth, Age::ThreeMonths];
-
-    fn span(self) -> TimeDelta {
-        TimeDelta::days(match self {
-            Age::OneWeek => 7,
-            Age::TwoWeeks => 14,
-            Age::OneMonth => 30,
-            Age::ThreeMonths => 91,
-        })
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Age::OneWeek => copy::controls::ONE_WEEK,
-            Age::TwoWeeks => copy::controls::TWO_WEEKS,
-            Age::OneMonth => copy::controls::ONE_MONTH,
-            Age::ThreeMonths => copy::controls::THREE_MONTHS,
-        }
-    }
-}
 
 /// The conversations Tidy Up archives, newest first: read, in the Inbox of the accounts `scope`
 /// names (`None` is every account), last written to more than `age` before `now`, and neither
@@ -120,14 +88,14 @@ pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
 /// Close the sheet, archiving nothing, and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().tidying = None;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// The sheet's button: archive what it listed, as one gesture, then close.
 fn run(shell: Signal<Shell>, threads: &[ThreadId]) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     close(shell);
-    crate::ui::motion::act_kind_all(&client, shell, threads, OpKind::Archive);
+    mail_ui_kit::motion::act_kind_all(&client, shell, threads, OpKind::Archive);
 }
 
 /// One conversation Tidy Up would archive, drawn as a row like the app's other lists: the
@@ -168,11 +136,11 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
     // conversation. Read again when the age, the Space, an archive or a sync changes it, and the
     // last list stays until the next is in.
     let listed = use_resource(move || {
-        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
+        let _ = mail_ui_kit::live::moved_for(mail_client::Topics::SUMMARIES);
         let age = shell.read().tidying;
         let scope = shell.read().account_filter();
-        let client = crate::ui::live::client();
-        let now = crate::ui::clock::now();
+        let client = mail_ui_kit::live::client();
+        let now = mail_ui_kit::clock::now();
         async move {
             let age = age?;
             tokio::task::spawn_blocking(move || candidates(&client, scope, age, now))
@@ -184,8 +152,8 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
     let Some(age) = shell.read().tidying else {
         return rsx! {};
     };
-    let now = crate::ui::clock::now();
-    let clock = crate::ui::clock::hours();
+    let now = mail_ui_kit::clock::now();
+    let clock = mail_ui_kit::clock::hours();
     // Not known until the first read is in: neither "nothing to archive" nor a count to press.
     let known = listed.read().clone().flatten();
     let reading = known.is_none();
@@ -250,7 +218,7 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
                         answers: Answers::Return,
                         label: copy::controls::archive_count(count),
                         availability: available(count > 0),
-                        common: crate::ui::sidebar::tagged("answer", "archive"),
+                        common: mail_ui_kit::common::tagged("answer", "archive"),
                         onclick: on_primary(move || run(shell, &ids)),
                     }
                 }

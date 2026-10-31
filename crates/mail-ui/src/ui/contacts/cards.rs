@@ -7,8 +7,8 @@
 use dioxus::prelude::*;
 
 use super::book;
-use crate::ui::motion::{Follow, tell};
-use crate::ui::pick::{Ask, choose, file_name};
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::pick::{Ask, choose, file_name};
 use mail_ui_model::copy;
 
 /// Ask for vCard files and read each into the book, in order, saying what the last one did.
@@ -21,7 +21,7 @@ pub(in crate::ui) fn import_cards() {
                 let read = tokio::task::spawn_blocking(move || std::fs::read(path)).await;
                 said = Some(match read {
                     Ok(Ok(bytes)) => {
-                        let client = crate::ui::live::client();
+                        let client = mail_ui_kit::live::client();
                         book::import(&client, &bytes)
                     }
                     _ => Err(copy::errors::cannot_read(&name)),
@@ -36,7 +36,7 @@ pub(in crate::ui) fn import_cards() {
 
 /// Write the whole book into the downloads directory and say where it went.
 pub(in crate::ui) fn export_cards() {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let dir = crate::ui::files::save_dir();
     match book::export(&client, &dir) {
         Ok(path) => {

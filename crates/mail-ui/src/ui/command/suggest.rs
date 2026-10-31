@@ -3,10 +3,10 @@
 //! second line under it (a mail's sender and snippet, a person's address), and an avatar or a
 //! glyph before it. Pure: mailo's rows in, quire's menu items out.
 
-use super::super::menu::{MenuItem, Right, Tile};
-use super::super::sidebar::hex_colour;
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::prelude::{Marks, MenuImage};
+use mail_ui_kit::common::hex_colour;
+use mail_ui_kit::menu::{MenuItem, Right, Tile};
 
 /// A quire menu item whose pick hands back the row's key.
 pub(super) type Line = ds::prelude::MenuItem<String>;
@@ -82,9 +82,9 @@ fn image(tile: &Tile) -> Option<MenuImage> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::menu::{Run, Tone};
     use super::*;
     use ds::prelude::Icon;
+    use mail_ui_kit::menu::{Run, Tone};
 
     fn row(key: &str, name: &str, group: &str) -> MenuItem {
         MenuItem {

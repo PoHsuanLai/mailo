@@ -13,9 +13,9 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_domain::{Draft, Mode};
 
-use super::super::menu::{MenuItem, Right};
 use super::page::{Float, Page};
 use super::seal::SealBar;
+use mail_ui_kit::menu::{MenuItem, Right};
 
 /// How the message is protected when it is sent: the scheme, and what it does to the message.
 /// No protection is [`Protection::None`], not a scheme asked to do nothing.

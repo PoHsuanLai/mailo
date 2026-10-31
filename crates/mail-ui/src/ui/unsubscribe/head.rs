@@ -2,8 +2,6 @@
 //! that says what it will do before it does it.
 
 use super::super::compose::{Desk, show_queued};
-use super::super::hover::copy;
-use super::super::motion::{Follow, tell};
 use super::{Ask, Bodies, Offer, ask, cached, http, leave, lookup, said};
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
@@ -12,6 +10,8 @@ use ds::root::common::Common;
 use mail_client::Client;
 use mail_client::unsubscribe::Outcome;
 use mail_domain::ThreadId;
+use mail_ui_kit::hover::copy;
+use mail_ui_kit::motion::{Deed, Follow, tell};
 
 /// Where the alert is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub(in crate::ui) fn Lookout(
         let bodies = bodies.clone();
         let looks = looks.clone();
         let tag = tag.clone();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let mut found = found;
         async move {
             let offer = match cached(&looks, thread, &bodies) {
@@ -121,7 +121,7 @@ fn take(offer: Offer, mut phase: Signal<Phase>) {
         return;
     }
     phase.set(Phase::Working);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let desk = try_consume_context::<Desk>();
     // Spawned from a click, which is where a task is polled: a future started from a
     // component body is the one thing that may never run.
@@ -148,13 +148,15 @@ fn take(offer: Offer, mut phase: Signal<Phase>) {
 fn landed(client: &Client, offer: &Offer, outcome: &Outcome, desk: Option<Desk>) {
     let text = said(outcome, &offer.list);
     match outcome {
-        Outcome::Unsubscribed { .. } => tell(
-            text,
-            Follow::ArchiveFrom {
-                sender: offer.sender.email.clone(),
-                list: offer.list.clone(),
-            },
-        ),
+        Outcome::Unsubscribed { .. } => tell(text, {
+            let (sender, list) = (offer.sender.email.clone(), offer.list.clone());
+            Follow::Do(Deed::new(
+                mail_ui_model::copy::controls::ARCHIVE_ALL,
+                move |client, shell| {
+                    super::archive_list(client, shell, &sender, &list);
+                },
+            ))
+        }),
         Outcome::Queued { draft } => {
             if let Some(desk) = desk {
                 show_queued(desk, client, *draft, chrono::Utc::now());

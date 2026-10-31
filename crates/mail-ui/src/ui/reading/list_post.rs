@@ -25,7 +25,7 @@ pub(super) fn PostLookout(
         let bodies = bodies.clone();
         let looks = looks.clone();
         let tag = tag.clone();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let mut found = found;
         async move {
             let post = match looks.post_cached(thread, &bodies) {

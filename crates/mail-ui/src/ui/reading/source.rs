@@ -8,9 +8,6 @@
 //! first [`SHOWN`] bytes, cut at a line's end, and says how much there was; Download in the ⋯
 //! writes all of it.
 
-use crate::ui::common::in_card;
-use crate::ui::press::{SheetClose, on_primary};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::overlays::sheet_attach::Attach;
@@ -19,23 +16,10 @@ use mail_client::Client;
 use mail_client::export::RawHead;
 use mail_client::prelude::CoreError;
 use mail_domain::{MessageId, ThreadId, human_size};
+use mail_ui_kit::common::in_card;
+use mail_ui_kit::press::{SheetClose, on_primary};
+use mail_ui_kit::view::{Raw, RawAsked, Shell};
 use mail_ui_model::copy;
-
-/// Which of a message's raw text a sheet shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Raw {
-    /// The header lines: everything before the first empty line.
-    Headers,
-    /// The whole message, headers and body.
-    Source,
-}
-
-/// A sheet asked for: which message, and which of its text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RawAsked {
-    pub message: MessageId,
-    pub raw: Raw,
-}
 
 /// The most of a message the sheet lays out, in bytes.
 const SHOWN: usize = 128 * 1024;
@@ -120,7 +104,7 @@ fn meant(messages: &[MessageId], focus: Option<MessageId>) -> Option<MessageId> 
 
 /// Ask for `raw` of `thread`'s message the keys mean ([`meant`]).
 pub(in crate::ui) fn ask(shell: Signal<Shell>, thread: ThreadId, raw: Raw) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let focus = shell.peek().focus;
     let newest = client
         .stored()
@@ -141,7 +125,7 @@ pub(in crate::ui) fn ask_message(mut shell: Signal<Shell>, message: MessageId, r
 /// Close the sheet.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().raw = None;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// The sheet, over the window while it is asked for.
@@ -201,7 +185,7 @@ fn read(client: &Client, asked: RawAsked) -> Read {
 fn RawBody(asked: RawAsked, title: &'static str, shell: Signal<Shell>) -> Element {
     // Read off the thread that draws, as the sheet opens; the sheet says so until it is in.
     let reading = use_resource(move || {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         async move {
             tokio::task::spawn_blocking(move || read(&client, asked))
                 .await
@@ -237,7 +221,7 @@ fn RawBody(asked: RawAsked, title: &'static str, shell: Signal<Shell>) -> Elemen
                 if let Some(text) = text {
                     Button {
                         label: copy::controls::COPY_ALL,
-                        onclick: on_primary(move || crate::ui::host::Host::copy(&text)),
+                        onclick: on_primary(move || mail_ui_kit::host::Host::copy(&text)),
                     }
                 }
                 SheetClose { label: copy::controls::DONE, on_close: move |()| close(shell) }

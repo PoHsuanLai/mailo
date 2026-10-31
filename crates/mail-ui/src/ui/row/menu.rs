@@ -355,7 +355,7 @@ pub(super) fn RowMenu(
     rsx! {
         Menu::<Pick> {
             placement: MenuPlacement::Context,
-            anchor: crate::ui::menu::anchor_for(anchor, Some(at)),
+            anchor: mail_ui_kit::menu::anchor_for(anchor, Some(at)),
             items,
             common: Common {
                 aria_label: Some(mail_ui_model::copy::aria::actions_for(&subject)),
@@ -370,8 +370,8 @@ pub(super) fn RowMenu(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::view::Shell;
     use chrono::TimeZone;
+    use mail_ui_kit::view::Shell;
     use mail_ui_model::copy::menus as m;
 
     use mail_domain::*;

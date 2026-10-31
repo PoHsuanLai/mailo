@@ -5,15 +5,15 @@
 //! institution or a real person's mailbox.
 
 use super::store::gmail_caps;
-use crate::ui::appearance::WindowDirs;
-use crate::ui::space::{self, Pinned};
-use crate::ui::today::{self, Today};
 use chrono::Datelike;
 use ds::prelude::{SpaceLook, Theme};
 use ds::style::space::palette::Dot;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::space::{self, Pinned};
+use mail_ui_kit::today::{self, Today};
 use porter_core::AccountId;
 use std::sync::Arc;
 

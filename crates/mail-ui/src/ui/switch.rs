@@ -6,8 +6,8 @@
 //! showing it again ([`restore`]). The Space's accounts follow on their own (`App` copies the
 //! current Space's scope into the shell whenever the Spaces change).
 
-use crate::ui::space::Recall;
-use crate::ui::view::{PageMenu, Shell};
+use mail_ui_kit::space::Recall;
+use mail_ui_kit::view::{PageMenu, Shell};
 
 /// Where `shell` is, as the Space it is showing will remember it.
 pub(super) fn recall_of(shell: &Shell) -> Recall {
@@ -15,7 +15,7 @@ pub(super) fn recall_of(shell: &Shell) -> Recall {
         place: shell
             .places
             .get(shell.selected)
-            .map(crate::ui::view::place_key)
+            .map(mail_ui_kit::view::place_key)
             .unwrap_or_default(),
         open: shell.open,
     }
@@ -29,12 +29,12 @@ pub(super) fn recall_of(shell: &Shell) -> Recall {
 /// stored before keys, and one the sidebar no longer uses (Done, Kept), is read as the place it
 /// meant. The whole Space is shown: a Space is the only narrowing of accounts there is.
 pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
-    shell.selected = crate::ui::view::find_place(&shell.places, &recall.place).unwrap_or(0);
+    shell.selected = mail_ui_kit::view::find_place(&shell.places, &recall.place).unwrap_or(0);
     shell.open = recall.open;
     shell.picked = mail_ui_model::selection::Picked::none();
     shell.show_remote_images = false;
     shell.search.clear();
-    shell.quick = crate::ui::quick::Quick::default();
+    shell.quick = mail_ui_kit::quick::Quick::default();
     shell.page_menu = PageMenu::Closed;
     shell.further = None;
 }

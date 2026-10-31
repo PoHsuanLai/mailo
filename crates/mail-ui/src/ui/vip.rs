@@ -5,12 +5,12 @@
 //! read again on every revision as the labels are, so a mark made anywhere moves the rows, the
 //! reader and the VIPs place together.
 
-use crate::ui::motion::tell_through;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
 use mail_client::vip::Mark;
+use mail_ui_kit::motion::tell_through;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// Where a mark made in the reader lands: the window's shell.
@@ -34,8 +34,8 @@ pub(in crate::ui) fn markable(shell: &Shell, address: &str) -> bool {
 /// landed, and the store moving makes the VIPs place and every other window follow.
 pub(in crate::ui) fn set(marking: Marking, address: &str, name: Option<&str>, mark: Mark) {
     let Marking { mut shell } = marking;
-    let client = crate::ui::live::client();
-    let motion = crate::ui::motion::motion();
+    let client = mail_ui_kit::live::client();
+    let motion = mail_ui_kit::motion::motion();
     let (address, name) = (address.to_owned(), name.map(str::to_owned));
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
@@ -43,7 +43,7 @@ pub(in crate::ui) fn set(marking: Marking, address: &str, name: Option<&str>, ma
                 .query()
                 .set_vip(&address, name.as_deref(), mark)
                 .map(|()| client.query().vips())
-                .map_err(crate::ui::remedy::told)
+                .map_err(mail_ui_kit::remedy::told)
         })
         .await
         .unwrap_or_else(|why| Err(why.to_string()));

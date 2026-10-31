@@ -60,7 +60,7 @@ fn a_change_to_the_desktops_appearance_restyles_the_running_window() {
 
     let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(Arc::new(mail), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         None,
         mail_ui::ui::ask::Open::raise(),

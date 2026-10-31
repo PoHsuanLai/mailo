@@ -334,7 +334,7 @@ async fn a_first_pass_that_fails_is_still_the_first_when_it_is_tried_again() {
 #[component]
 fn Probe() -> Element {
     // As `App` does: a client that reads here acts on what was committed from the first frame.
-    use_hook(crate::ui::live::moved_peek);
+    use_hook(mail_ui_kit::live::moved_peek);
     super::use_fetching();
     rsx! {}
 }
@@ -480,7 +480,7 @@ async fn new_mail_the_window_fetched_is_announced_while_notifications_are_on() {
         let seen = rebuild_into(&mut dom);
         if !on {
             dom.in_scope(ScopeId::APP, || {
-                crate::ui::prefs::change(|settings| {
+                mail_ui_kit::prefs::change(|settings| {
                     settings.notifications.new_mail = mail_ui_model::settings::NewMail::Off;
                 })
             })

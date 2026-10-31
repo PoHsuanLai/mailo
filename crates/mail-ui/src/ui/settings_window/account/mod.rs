@@ -25,14 +25,9 @@ mod edit;
 mod sends_as;
 mod words;
 
-use crate::ui::appearance::WindowDirs;
-use crate::ui::common::Problem;
-use crate::ui::data::{AccountRow, use_account_rows};
 use crate::ui::fetching::{Need, Needing, use_needs};
 use crate::ui::pgp::keys::Whose;
-use crate::ui::press::on_primary;
 use crate::ui::reauth::SIGN_IN;
-use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
 use ds::components::content::label::Label;
 use ds::components::controls::button_model::ButtonRole;
@@ -43,6 +38,11 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::Storage;
 use mail_client::prelude::AccountSecrets;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::data::{AccountRow, use_account_rows};
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::{AccountStep, AccountsPage, Shell};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -71,7 +71,10 @@ impl Seams {
             secrets: client.net().secrets(),
             storage: remembered(
                 Arc::new(|client, account| {
-                    client.net().quota(account).map_err(crate::ui::remedy::told)
+                    client
+                        .net()
+                        .quota(account)
+                        .map_err(mail_ui_kit::remedy::told)
                 }),
                 STORAGE_KEPT,
             ),
@@ -189,7 +192,7 @@ fn confirm(mut shell: Signal<Shell>, account: AccountId) {
     if shell.peek().accounts_pane.step != AccountStep::Asking {
         return;
     }
-    let Some(client) = crate::ui::live::try_client() else {
+    let Some(client) = mail_ui_kit::live::try_client() else {
         return;
     };
     to(shell, AccountStep::Removing);
@@ -266,7 +269,7 @@ fn use_storage(
                     && row.syncing != mail_client::Syncing::Paused
                     && row.plan.incoming.caps().has_quota
             })
-            .then(crate::ui::live::try_client)
+            .then(mail_ui_kit::live::try_client)
             .flatten();
         let ask = seams().storage;
         async move { asked_within(STORAGE_WAIT, ask, asked?, account).await }
@@ -278,7 +281,7 @@ fn use_storage(
 #[component]
 pub(super) fn AccountPage(shell: Signal<Shell>, account: AccountId) -> Element {
     // Read again when an account comes or goes.
-    let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
+    let _ = mail_ui_kit::live::moved_for(mail_client::Topics::ACCOUNTS);
     // Whether the account waits for the person: the first window knows, and says so to this one.
     let waiting = use_needs();
     let rows = use_account_rows();
@@ -306,7 +309,7 @@ pub(super) fn AccountPage(shell: Signal<Shell>, account: AccountId) -> Element {
         AccountStep::Showing | AccountStep::Asking | AccountStep::Removing => None,
     };
     let asking = (step == AccountStep::Asking).then(|| {
-        let held = crate::ui::live::try_client()
+        let held = mail_ui_kit::live::try_client()
             .and_then(|client| client.stored().offline(row.id.clone()).ok())
             .map_or(0, |offline| {
                 usize::try_from(offline.messages).unwrap_or(usize::MAX)

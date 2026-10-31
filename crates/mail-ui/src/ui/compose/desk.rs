@@ -7,14 +7,14 @@ use dioxus::prelude::*;
 use mail_client::Client;
 use mail_domain::DraftId;
 
-use super::super::motion::{Follow, tell};
 use super::life;
 use super::page::{Page, Phase, When};
-use crate::ui::appearance::WindowDirs;
-use crate::ui::space::Spaces;
 use crate::ui::spelling;
-use crate::ui::today::Today;
-use crate::ui::view::Shell;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::space::Spaces;
+use mail_ui_kit::today::Today;
+use mail_ui_kit::view::Shell;
 
 /// A send that is queued and may still be taken back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +55,7 @@ pub(in crate::ui) fn use_desk(
     spaces: Signal<Spaces>,
     dirs: Option<WindowDirs>,
 ) -> Desk {
-    let settings = crate::ui::prefs::use_settings();
+    let settings = mail_ui_kit::prefs::use_settings();
     let spelling = use_memo(move || settings.read().compose.spelling);
     use_context_provider(|| Desk {
         spelling,
@@ -75,7 +75,7 @@ pub(in crate::ui) fn use_desk(
 
 fn save_today(desk: Desk) {
     if let Some(dirs) = desk.dirs.peek().as_ref() {
-        let _ = crate::ui::today::save(&dirs.state, &desk.today.peek());
+        let _ = mail_ui_kit::today::save(&dirs.state, &desk.today.peek());
     }
 }
 
@@ -109,7 +109,7 @@ pub(in crate::ui) fn keep(desk: Desk, page: Signal<Page>) {
 
 /// Save `snapshot` and list it in Today, kept exactly as it was left.
 pub(in crate::ui) fn keep_page(mut desk: Desk, snapshot: Page) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let space = desk.spaces.peek().current().id;
     let parked = life::park(
         &client,
@@ -139,7 +139,7 @@ pub(in crate::ui) fn show_queued(
     draft: DraftId,
     now: DateTime<Utc>,
 ) {
-    let compose = crate::ui::prefs::current().compose;
+    let compose = mail_ui_kit::prefs::current().compose;
     let Some(page) = life::load(client, draft, &mut Vec::new(), &compose) else {
         return;
     };
@@ -185,7 +185,7 @@ pub(in crate::ui) fn take_back(
     mut shell: Signal<Shell>,
     draft: DraftId,
 ) -> Result<(), String> {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let draft = life::unsend(&client, draft, Utc::now())?;
     let held = desk
         .outbox
@@ -201,7 +201,7 @@ pub(in crate::ui) fn take_back(
             &client,
             draft.id,
             &mut desk.parked.write(),
-            &crate::ui::prefs::current().compose,
+            &mail_ui_kit::prefs::current().compose,
         )
         .ok_or_else(|| "that draft is gone".to_owned())?,
     };
@@ -222,7 +222,7 @@ pub(in crate::ui) fn take_back(
 
 /// Open a parked draft again.
 pub(in crate::ui) fn reopen(desk: Desk, mut shell: Signal<Shell>, draft: DraftId) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     if shell.write().compose_id(&client, draft).is_err() {
         unpark(desk, draft);
     }

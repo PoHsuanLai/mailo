@@ -6,7 +6,7 @@ use ds_harness::{Clock, HarnessConfig, Viewport};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::*;
-use mail_ui::ui::appearance::WindowDirs;
+use mail_ui_kit::appearance::WindowDirs;
 use std::sync::Arc;
 
 use crate::store::acct_account;
@@ -87,7 +87,7 @@ pub fn config(store: &Arc<SqliteStore>, dir: &std::path::Path) -> HarnessConfig 
     let printer = mail_ui::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(Arc::clone(store), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         Some(dirs),
         mail_ui::ui::ask::Open::raise(),

@@ -7,14 +7,14 @@
 //! is one keystroke away and never in the way. What it lists is [`rows`], pure over the client
 //! and Today, so a table test can say it.
 
-use super::super::menu::{MenuItem, Tile};
 use super::items::{RECENT, avatar_color};
-use crate::ui::space::SpaceId;
-use crate::ui::today::Today;
 use chrono::{DateTime, Utc};
 use ds::prelude::*;
 use mail_client::Client;
 use mail_domain::{Draft, DraftId, ThreadId};
+use mail_ui_kit::menu::{MenuItem, Tile};
+use mail_ui_kit::space::SpaceId;
+use mail_ui_kit::today::Today;
 use mail_ui_model::copy;
 
 /// How many conversations Recent lists. The rest are still a search away.

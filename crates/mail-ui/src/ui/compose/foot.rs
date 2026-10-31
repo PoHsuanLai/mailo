@@ -17,7 +17,6 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_ui_model::copy;
 
-use super::super::menu::{anchor_at, menu_items};
 use super::super::menus::{snooze_help, when_words};
 use super::later::{PICK_KEY as LATER_PICK, PICK_LABEL, PickTime};
 use super::page::{Float, Fold, Page, When};
@@ -25,9 +24,10 @@ use super::protection;
 use super::receipt;
 use super::remind::{PickRemind, pick_remind, remind_choices};
 use super::templates::{self, SAVE_KEY};
-use crate::ui::actions::{self, Own};
-use crate::ui::press::on_primary;
 use mail_domain::{DeliveryReport, Priority, ReceiptRequest};
+use mail_ui_kit::actions::{self, Own};
+use mail_ui_kit::menu::{anchor_at, menu_items};
+use mail_ui_kit::press::on_primary;
 
 /// Send ▾'s keys: a Send Later choice is `later:` and the Sends key, a reminder `remind:` and its
 /// key, and the receipt [`receipt::KEY`].
@@ -273,9 +273,9 @@ pub(super) fn SendButton(page: Signal<Page>, on_send: EventHandler<()>) -> Eleme
     let items = if open {
         send_items(
             &page.read(),
-            super::super::clock::now(),
+            mail_ui_kit::clock::now(),
             &chrono::Local,
-            super::super::clock::hours(),
+            mail_ui_kit::clock::hours(),
         )
     } else {
         Vec::new()
@@ -341,7 +341,7 @@ pub(super) fn MoreButton(
     let open = page.read().float == Float::More;
     // Asked of the client again only when the page's From account changes.
     let delivery_offered = use_memo(move || {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         client.compose().can_ask_delivery_report(&page.read().from)
     });
     let items = if open {
@@ -385,7 +385,7 @@ pub(super) fn MoreButton(
                     match act {
                         More::Done => {
                             if matches!(page.peek().float, Float::SaveTemplate(_)) {
-                                crate::ui::host::Host::focus_after_task(".tpl-name input");
+                                mail_ui_kit::host::Host::focus_after_task(".tpl-name input");
                             }
                         }
                         More::Keep => on_keep.call(()),

@@ -11,8 +11,6 @@
 
 use super::keys::{KeyRow, value_of};
 use super::rows::link_row;
-use crate::ui::common::Problem;
-use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::Invalid;
@@ -22,6 +20,8 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use ds_settings::schema::{Help, KeySpec};
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::copy;
 
 /// One row of a page.
@@ -174,7 +174,7 @@ fn Groups(
     on_trusted: EventHandler<()>,
     on_vips: EventHandler<()>,
 ) -> Element {
-    let settings = crate::ui::prefs::current();
+    let settings = mail_ui_kit::prefs::current();
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
     let mut failed = use_signal(|| None::<String>);
@@ -184,7 +184,7 @@ fn Groups(
     // would say what nothing does.
     let keeps = try_consume_context::<mail_os::login_item::LoginItems>().is_some();
     let onedit = move |(path, value): (String, toml::Value)| {
-        let changed = crate::ui::prefs::change_key(&path, value);
+        let changed = mail_ui_kit::prefs::change_key(&path, value);
         if changed.is_ok() && path == mail_ui_model::settings::WHILE_QUIT {
             follow_login_item(login);
         }
@@ -267,7 +267,7 @@ fn follow_login_item(mut login: Signal<Option<(&'static str, String)>>) {
     let Some(items) = try_consume_context::<LoginItems>() else {
         return;
     };
-    let wanted = crate::ui::prefs::current().sync.while_quit;
+    let wanted = mail_ui_kit::prefs::current().sync.while_quit;
     spawn(async move {
         let applied = tokio::task::spawn_blocking(move || {
             apply(&*items.0, wanted == mail_ui_model::settings::WhileQuit::On)
@@ -299,7 +299,7 @@ fn said_of(
         (Err(why), WhileQuit::On) => {
             let mut said = copy::errors::login_item_not_registered(&why);
             if let Err(also) =
-                crate::ui::prefs::change(|settings| settings.sync.while_quit = WhileQuit::Off)
+                mail_ui_kit::prefs::change(|settings| settings.sync.while_quit = WhileQuit::Off)
             {
                 said = format!("{said} {also}");
             }
@@ -313,7 +313,7 @@ fn said_of(
 }
 
 /// A text key that holds an address: a field, written when it is left, that says what is wrong
-/// with it while the way it names cannot be used ([`crate::ui::prefs::route_problem`]). Images
+/// with it while the way it names cannot be used ([`mail_ui_kit::prefs::route_problem`]). Images
 /// wait on it, and the field is where the person is told.
 #[component]
 fn AddressRow(
@@ -330,7 +330,7 @@ fn AddressRow(
     };
     // An address is wrong whatever the relay's key is, so it is judged from the settings alone: the
     // window's, which this row follows as they change, with or without the keyring having answered.
-    let problem = crate::ui::prefs::current().privacy.route(None).err();
+    let problem = mail_ui_kit::prefs::current().privacy.route(None).err();
     let validity = match problem.filter(|problem| Some(*problem) == ours) {
         None => Validity::Valid,
         Some(problem) => {
@@ -372,7 +372,7 @@ fn FolderRow(
     let reset = path.clone();
     rsx! {
         FieldRow { label: TextLine::from(spec.label.0.clone()),
-            Label { text: shown.display().to_string(), common: crate::ui::common::classed("truncate") }
+            Label { text: shown.display().to_string(), common: mail_ui_kit::common::classed("truncate") }
             Button {
                 label: copy::controls::CHOOSE_FOLDER,
                 size: ControlSize::Small,
@@ -383,7 +383,7 @@ fn FolderRow(
                 },
                 onclick: on_primary(move || {
                     let path = path.clone();
-                    crate::ui::pick::choose(crate::ui::pick::Ask::Folder, Some(shown.clone()), move |folders| {
+                    mail_ui_kit::pick::choose(mail_ui_kit::pick::Ask::Folder, Some(shown.clone()), move |folders| {
                         if let Some(folder) = folders.into_iter().next() {
                             onedit.call((path, toml::Value::String(folder.display().to_string())));
                         }
@@ -412,8 +412,8 @@ pub const USE_DOWNLOADS_ID: &str = "general-use-downloads";
 /// address to `notifications.muted_accounts`, in lowercase, and back on takes it out.
 #[component]
 fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
-    let rows = crate::ui::data::use_account_rows()();
-    let muted = crate::ui::prefs::current().notifications.muted_accounts;
+    let rows = mail_ui_kit::data::use_account_rows()();
+    let muted = mail_ui_kit::prefs::current().notifications.muted_accounts;
     rsx! {
         if rows.is_empty() {
             FieldRow { label: copy::empty::NO_ACCOUNTS_TO_NOTIFY }
@@ -429,7 +429,7 @@ fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
                         value: if on { Check::On } else { Check::Off },
                         onchange: move |next| {
                             let address = address.clone();
-                            let changed = crate::ui::prefs::change(move |settings| {
+                            let changed = mail_ui_kit::prefs::change(move |settings| {
                                 let list = &mut settings.notifications.muted_accounts;
                                 list.retain(|kept| *kept != address);
                                 if next == Check::Off {
@@ -452,7 +452,7 @@ fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
 fn RelayKey(mut failed: Signal<Option<String>>) -> Element {
     let mut typed = use_signal(String::new);
     let mut kept = use_resource(|| async {
-        let Some(client) = crate::ui::live::try_client() else {
+        let Some(client) = mail_ui_kit::live::try_client() else {
             return false;
         };
         tokio::task::spawn_blocking(move || client.net().relay_key())
@@ -461,7 +461,7 @@ fn RelayKey(mut failed: Signal<Option<String>>) -> Element {
     });
     let is_kept = (*kept.read()).unwrap_or(false);
     let keep = move |key: String| {
-        let Some(client) = crate::ui::live::try_client() else {
+        let Some(client) = mail_ui_kit::live::try_client() else {
             return;
         };
         spawn(async move {
@@ -471,14 +471,14 @@ fn RelayKey(mut failed: Signal<Option<String>>) -> Element {
             match done {
                 Ok(()) => {
                     typed.set(String::new());
-                    let bumped = crate::ui::prefs::change(|settings| {
+                    let bumped = mail_ui_kit::prefs::change(|settings| {
                         settings.privacy.relay_key_changed =
                             settings.privacy.relay_key_changed.wrapping_add(1);
                     });
                     failed.set(bumped.err());
                     kept.restart();
                 }
-                Err(why) => failed.set(Some(crate::ui::remedy::plainly(
+                Err(why) => failed.set(Some(mail_ui_kit::remedy::plainly(
                     copy::errors::RELAY_KEY_NOT_KEPT,
                     why,
                 ))),
@@ -519,7 +519,7 @@ fn RelayKey(mut failed: Signal<Option<String>>) -> Element {
 /// The senders whose images load, a row each with its Remove.
 #[component]
 fn TrustedSenders() -> Element {
-    let settings = crate::ui::prefs::current();
+    let settings = mail_ui_kit::prefs::current();
     let senders = settings.reading.trusted_image_senders.clone();
     let mut failed = use_signal(|| None::<String>);
     let none = senders.is_empty();
@@ -543,7 +543,7 @@ fn TrustedSenders() -> Element {
                                 let sender = sender.clone();
                                 on_primary(move || {
                                     let gone = sender.clone();
-                                    let changed = crate::ui::prefs::change(move |settings| {
+                                    let changed = mail_ui_kit::prefs::change(move |settings| {
                                         settings.reading.trusted_image_senders.retain(|kept| *kept != gone);
                                     });
                                     failed.set(changed.err());

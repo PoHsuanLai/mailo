@@ -5,8 +5,6 @@
 //! typed here.
 
 use super::spotlight::summon;
-use crate::ui::press::on_primary;
-use crate::ui::view::{Bar, Shell};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -15,6 +13,8 @@ use ds::prelude::*;
 use ds::style::icon::render::IconPx;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::search;
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::{Bar, Shell};
 use mail_ui_model::copy;
 
 /// What the toolbar's search is called, to a screen reader and to a test.
@@ -147,7 +147,7 @@ fn token_spans(query: &str) -> Vec<(usize, usize)> {
 /// The toolbar's magnifier: a press brings up the panel.
 #[component]
 pub(in crate::ui) fn SearchBox(shell: Signal<Shell>) -> Element {
-    let keys = crate::ui::actions::tip_own(crate::ui::actions::Own::Search);
+    let keys = mail_ui_kit::actions::tip_own(mail_ui_kit::actions::Own::Search);
     rsx! {
         div { class: "bar",
             Button {
@@ -241,8 +241,8 @@ pub(in crate::ui) fn clear(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
 #[cfg(test)]
 mod tests {
     use super::{Affordance, SearchHead, Terms, affordance, terms};
-    use crate::ui::view::{Bar, BarOpen, Shell};
     use dioxus::prelude::*;
+    use mail_ui_kit::view::{Bar, BarOpen, Shell};
 
     #[component]
     fn Searching() -> Element {

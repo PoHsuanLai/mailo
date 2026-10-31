@@ -1,22 +1,11 @@
-use super::actions::{self, Heard};
-use super::ask::{self, Open, Window};
 use super::compose::{self, SendPill};
-use super::data::PAGE;
 use super::frame;
-use super::intent::{Intent, Scope, intent, on_thread};
 use super::list::ThreadList;
-use super::list_query::{ListView, use_list};
-use super::live::use_live;
-use super::ops::{Writes, open_composer};
 use super::reading::{ReaderIn, reading_column};
 use super::sidebar::Places;
 use super::style::STYLE;
 use super::window_core::{use_window_core, use_window_desk};
-use crate::ui::space::Spaces;
-use crate::ui::view::{
-    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, nothing_to_show, places_with,
-    scoped_unread_filter,
-};
+use crate::ui::ask::{self, Open, Window};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::components::app::spaces::{Showing, SwitchChord, Switched, use_spaces};
@@ -27,6 +16,17 @@ use ds::style::kit::Styles;
 use ds_settings::Environment;
 use mail_client::profile::ProfileId;
 use mail_domain::*;
+use mail_ui_kit::actions::{self, Heard};
+use mail_ui_kit::data::PAGE;
+use mail_ui_kit::intent::{Intent, Scope, intent, on_thread};
+use mail_ui_kit::list_query::{ListView, use_list};
+use mail_ui_kit::live::use_live;
+use mail_ui_kit::ops::{Writes, open_composer};
+use mail_ui_kit::space::Spaces;
+use mail_ui_kit::view::{
+    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, nothing_to_show, places_with,
+    scoped_unread_filter,
+};
 use mail_ui_model::selection::Toward;
 
 /// The Spaces the window opens on, `first` as stored: a window started from a click (`mailo
@@ -37,7 +37,7 @@ fn arrived_at(mut first: Spaces) -> Spaces {
     let Some(open) = try_consume_context::<Open>() else {
         return first;
     };
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     if let Some(id) = ask::space_for(&first, &client, &*open.ask)
         && id != first.current().id
     {
@@ -59,12 +59,12 @@ pub(super) fn App() -> Element {
         let mut shell = Shell {
             appearance: try_consume_context::<Appearance>().unwrap_or_default(),
             // The user's keys, read once. A window handed no directories reads no file.
-            keymap: try_consume_context::<crate::ui::appearance::WindowDirs>()
-                .map(|dirs| crate::ui::keymap::load(&dirs.config))
+            keymap: try_consume_context::<mail_ui_kit::appearance::WindowDirs>()
+                .map(|dirs| mail_ui_kit::keymap::load(&dirs.config))
                 .unwrap_or_default(),
             // The orders chosen for the places, where the window's root already read them; the
             // effect after `use_prefs` below reads them where it did not.
-            sorts: mail_ui_model::settings::sorts_of(&crate::ui::prefs::current().window),
+            sorts: mail_ui_model::settings::sorts_of(&mail_ui_kit::prefs::current().window),
             ..Shell::default()
         };
         // What the window was started to show (`mailo open`, a banner's click): its conversation
@@ -91,9 +91,9 @@ pub(super) fn App() -> Element {
         let first = boot.spaces.clone();
         use_spaces(
             move || arrived_at(first),
-            |spaces: &crate::ui::space::Spaces| frame::keep(spaces),
+            |spaces: &mail_ui_kit::space::Spaces| frame::keep(spaces),
             move || super::switch::recall_of(&shell.peek()),
-            move |arrived: Switched<crate::ui::space::Recall>| {
+            move |arrived: Switched<mail_ui_kit::space::Recall>| {
                 super::switch::restore(&mut shell.write(), &arrived.restore);
                 pages.set(1);
             },
@@ -104,7 +104,7 @@ pub(super) fn App() -> Element {
     // What a running window is asked from outside: a notification's click, `mailo open`. A
     // conversation opens here, where the person reads, in a Space that shows its account, and
     // the window is raised with the click's token.
-    super::handoff::use_handoff(shell, handle);
+    crate::ui::handoff::use_handoff(shell, handle);
     // A window started on an ask does what it asks once it is shown: a banner's Archive archives
     // the conversation as the window's own Archive does (the toast with Undo, a failure said in
     // it), a Reply opens the composer, a `mailto:` link saves its draft and opens it.
@@ -132,7 +132,7 @@ pub(super) fn App() -> Element {
         let dirs = dirs.clone();
         move || {
             let now = space_ids(&spaces.read());
-            let gone: Vec<crate::ui::space::SpaceId> = known
+            let gone: Vec<mail_ui_kit::space::SpaceId> = known
                 .peek()
                 .iter()
                 .filter(|id| !now.contains(id))
@@ -146,14 +146,14 @@ pub(super) fn App() -> Element {
                 today_list.write().drop_space(id);
             }
             if let Some(dirs) = &dirs {
-                let _ = crate::ui::today::save(&dirs.state, &today_list.peek());
+                let _ = mail_ui_kit::today::save(&dirs.state, &today_list.peek());
             }
         }
     });
     // The files this window saves, behind the sidebar's Downloads button.
     super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
-    let prefs = super::prefs::use_prefs(dirs.as_ref());
+    let prefs = mail_ui_kit::prefs::use_prefs(dirs.as_ref());
     // The places' orders follow `settings.toml`, so one chosen in another window sorts this one.
     use_effect(move || {
         let sorts = mail_ui_model::settings::sorts_of(&prefs.read().window);
@@ -205,7 +205,7 @@ pub(super) fn App() -> Element {
     // program reads them before the window opens): a chip's name is a lookup, and a lookup
     // against an empty list draws an empty chip.
     use_hook(|| {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let mut write = shell.write();
         if every.peek().value().is_some() {
             write.labels = known.peek().clone();
@@ -222,7 +222,7 @@ pub(super) fn App() -> Element {
 
     // The window follows the store's moves from its first frame: a client that reads on the thread
     // that draws (a test's window) acts on its commits from then on.
-    use_hook(crate::ui::live::moved_peek);
+    use_hook(mail_ui_kit::live::moved_peek);
 
     // Mail that only arrives when you press a button is mail you miss: every account's link, the
     // timers that poll them and the loop that runs their passes (`fetching`).
@@ -294,7 +294,7 @@ pub(super) fn App() -> Element {
             // folder down by one, and the list must not jump to the folder above.
             let selected = {
                 let current = shell.peek();
-                super::view::selected_after(&current.places, current.selected, &next, &vips)
+                mail_ui_kit::view::selected_after(&current.places, current.selected, &next, &vips)
             };
             let mut write = shell.write();
             write.places = next;
@@ -305,10 +305,10 @@ pub(super) fn App() -> Element {
     // The accounts the From row can send from: an account added in a terminal reaches the open
     // window without a restart.
     use_effect(move || {
-        let _ = crate::ui::live::moved_for(
+        let _ = mail_ui_kit::live::moved_for(
             mail_client::Topics::ACCOUNTS | mail_client::Topics::IDENTITIES,
         );
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let sending = client.compose().sending_accounts();
         if shell.peek().accounts != sending {
             shell.write().accounts = sending;
@@ -318,7 +318,7 @@ pub(super) fn App() -> Element {
     // The Space's account list, whenever the Spaces change: the Space's menu (Accounts) edits
     // it. Read through `peek`, so a shell change (a tile pressed) does not run this. Another
     // Space, or a pressed tile whose account left the Space, goes back to every account.
-    let mut on_space = use_hook(|| CopyValue::new(None::<crate::ui::space::SpaceId>));
+    let mut on_space = use_hook(|| CopyValue::new(None::<mail_ui_kit::space::SpaceId>));
     use_effect(move || {
         let (id, scope) = {
             let all = spaces.read();
@@ -342,8 +342,8 @@ pub(super) fn App() -> Element {
     let drawn = use_memo(move || {
         let window = prefs.read().window.clone();
         (
-            super::view::PageParts::of(&window),
-            super::view::PageGroup::from(window.group_by_date),
+            mail_ui_kit::view::PageParts::of(&window),
+            mail_ui_kit::view::PageGroup::from(window.group_by_date),
         )
     });
     use_effect(move || {
@@ -367,7 +367,7 @@ pub(super) fn App() -> Element {
     // Provider marks are a setting (`window.provider_marks`), which detent may change while the
     // window is open.
     use_effect(move || {
-        let marks = crate::ui::view::Marks::from(prefs.read().window.provider_marks);
+        let marks = mail_ui_kit::view::Marks::from(prefs.read().window.provider_marks);
         if shell.peek().appearance.marks != marks {
             shell.write().appearance.marks = marks;
         }
@@ -398,8 +398,8 @@ pub(super) fn App() -> Element {
         let mut next = spaces.peek().clone();
         // The window opens the default Profile until it can open others.
         let profile = ProfileId::default();
-        if crate::ui::space::forget_unknown(&mut next, &profile, &known)
-            == crate::ui::space::Forgot::Changed
+        if mail_ui_kit::space::forget_unknown(&mut next, &profile, &known)
+            == mail_ui_kit::space::Forgot::Changed
         {
             frame::keep(&next);
             let scope = next.current().payload.scope();
@@ -424,15 +424,15 @@ pub(super) fn App() -> Element {
         let space = spaces.peek().current().id;
         let now = chrono::Utc::now();
         // Off the thread that draws: the store's writer may be held by a sync.
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         drop(tokio::task::spawn_blocking(move || {
             client.history().record(id, now)
         }));
         today_list
             .write()
-            .opened(space, id, crate::ui::today::at(now));
+            .opened(space, id, mail_ui_kit::today::at(now));
         if let Some(dirs) = today_dirs.clone() {
-            let _ = crate::ui::today::save(&dirs.state, &today_list.read());
+            let _ = mail_ui_kit::today::save(&dirs.state, &today_list.read());
         }
     });
 
@@ -453,7 +453,7 @@ pub(super) fn App() -> Element {
 
     // Every account's drafts, kept read, while Drafts or Scheduled is shown; nothing is read
     // for any other place.
-    let held = crate::ui::live::use_live(move || {
+    let held = mail_ui_kit::live::use_live(move || {
         let listing = shell.read().listing(PAGE);
         mail_client::query::DraftsOf(match listing {
             Listing::Drafts => every
@@ -622,7 +622,7 @@ pub(super) fn App() -> Element {
             Scope::List
         };
         let intent = intent(heard, scope);
-        if super::motion::key(
+        if mail_ui_kit::motion::key(
             &key,
             heard == Some(Heard::Standard(StandardAction::Undo)),
             typing_now,
@@ -693,13 +693,13 @@ pub(super) fn App() -> Element {
                 let mut write = shell.write();
                 write.page_menu = PageMenu::Closed;
                 write.further = None;
-                super::host::Host::focus_app();
+                mail_ui_kit::host::Host::focus_app();
             }
             return;
         }
         // Filtering the list is the list's, so a menu that is open takes the key first.
         if intent == Some(Intent::FilterUnread) {
-            super::list::quick::toggle(shell, pages, super::quick::Toggle::Unread);
+            super::list::quick::toggle(shell, pages, mail_ui_kit::quick::Toggle::Unread);
             return;
         }
         let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
@@ -739,7 +739,7 @@ pub(super) fn App() -> Element {
         let Some(Intent::Mail(action)) = intent else {
             return;
         };
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let open = shell.read().open;
         match action {
             Shortcut::Next | Shortcut::Previous => {
@@ -872,7 +872,7 @@ pub(super) fn App() -> Element {
                         },
                         _ => reading,
                     }
-                    super::hover::LinkPill {}
+                    mail_ui_kit::hover::LinkPill {}
                 }
             }
             SendPill { shell }
@@ -884,15 +884,15 @@ pub(super) fn App() -> Element {
         div { class: frame_class,
             style: "--side-w: {SIDEBAR_WIDTH}px",
             tabindex: "0",
-            onmounted: super::host::Host::app_mounted,
+            onmounted: mail_ui_kit::host::Host::app_mounted,
             onkeydown: on_key,
             onpointermove: move |event| {
                 let at = event.client_coordinates();
                 let held = !event.held_buttons().is_empty();
-                super::motion::drag::moved((at.x, at.y), held);
+                mail_ui_kit::motion::drag::moved((at.x, at.y), held);
             },
             onpointerup: move |_| {
-                super::motion::drag::release(shell);
+                mail_ui_kit::motion::drag::release(shell);
             },
             "data-peek": peek.slug(),
             // The window is quire's `SplitView`: the sidebar pane, resizable and folding away past
@@ -1031,7 +1031,7 @@ pub(super) fn window_appearance(environment: &Environment) -> ds::prelude::Appea
 }
 
 /// The ids of `spaces`, in order.
-fn space_ids(spaces: &crate::ui::space::Spaces) -> Vec<crate::ui::space::SpaceId> {
+fn space_ids(spaces: &mail_ui_kit::space::Spaces) -> Vec<mail_ui_kit::space::SpaceId> {
     spaces.list().iter().map(|space| space.id).collect()
 }
 

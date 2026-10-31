@@ -132,7 +132,7 @@ async fn a_row_s_menu_marks_its_sender_and_takes_the_mark_off() {
 /// The person's own addresses are never marked: it is mail to be heard of from others.
 #[test]
 fn an_own_address_cannot_be_marked_a_vip() {
-    let shell = crate::ui::view::Shell {
+    let shell = mail_ui_kit::view::Shell {
         accounts: vec![(
             "Me@Example.test".to_owned(),
             mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1)),
@@ -147,8 +147,8 @@ fn an_own_address_cannot_be_marked_a_vip() {
 /// sidebar no longer draws the VIPs place, and its list would be empty with nothing chosen in it.
 #[test]
 fn the_last_vip_removed_leaves_the_vips_place_for_the_inbox() {
-    use crate::ui::view::{is_vips, own_places, selected_after};
     use mail_client::vip::Vips;
+    use mail_ui_kit::view::{is_vips, own_places, selected_after};
 
     let some = Vips::new(["dana@example.test"]);
     let was = own_places(&some);

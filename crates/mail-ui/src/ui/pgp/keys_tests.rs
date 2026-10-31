@@ -310,7 +310,7 @@ async fn a_key_without_a_secret_is_deleted_at_once() {
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(theirs.fingerprint).unwrap().is_none());
     // The toast's Undo puts the key back whole.
-    crate::ui::motion::Restore::Key(theirs.clone())
+    mail_ui_kit::motion::Restore::Key(theirs.clone())
         .put_back(&crate::ui::fixtures::client(&store))
         .unwrap();
     assert_eq!(store.pgp_key(theirs.fingerprint).unwrap(), Some(theirs));

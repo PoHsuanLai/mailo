@@ -15,7 +15,7 @@ use mail_domain::{Retry, SendState};
 use super::super::menus::when_in_sentence;
 use super::desk::{Desk, Outgoing, take_back_said};
 use super::page::When;
-use crate::ui::view::Shell;
+use mail_ui_kit::view::Shell;
 
 /// How long "Sent" stays before the pill leaves.
 const SENT_STAYS: chrono::TimeDelta = chrono::TimeDelta::seconds(2);
@@ -194,7 +194,7 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     let Some(out) = desk.outbox.read().clone() else {
         return rsx! {};
     };
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let state = client
         .stored()
         .draft(out.draft)
@@ -206,7 +206,7 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
         state.as_ref(),
         now,
         &chrono::Local,
-        crate::ui::clock::hours(),
+        mail_ui_kit::clock::hours(),
     ) else {
         return rsx! {};
     };

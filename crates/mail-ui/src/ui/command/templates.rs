@@ -8,9 +8,9 @@ use mail_client::Client;
 use mail_domain::Draft;
 
 use super::super::compose::{every_template, template_rows};
-use super::super::menu::MenuItem;
-use super::super::motion::{Follow, tell};
-use crate::ui::view::Shell;
+use mail_ui_kit::menu::MenuItem;
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::view::Shell;
 
 /// Start a draft from the template `key` names, addressed as the template is.
 pub(in crate::ui) fn start(client: &Client, key: &str) -> Result<Draft, String> {
@@ -23,7 +23,7 @@ pub(in crate::ui) fn start(client: &Client, key: &str) -> Result<Draft, String> 
     client
         .template()
         .start(id, &[], Utc::now())
-        .map_err(crate::ui::remedy::told)
+        .map_err(mail_ui_kit::remedy::told)
 }
 
 /// The panel's rows while it lists the templates, narrowed by `typed`.
@@ -33,7 +33,7 @@ pub(super) fn rows(client: &Client, typed: &str) -> Vec<MenuItem> {
 
 /// Start a draft from the template `key` names and open it as a composer page.
 pub(super) fn run(shell: Signal<Shell>, key: &str) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     match start(&client, key) {
         Ok(draft) => {
             let mut shell = shell;

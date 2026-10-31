@@ -40,7 +40,7 @@ pub(in crate::ui) fn Seal(
     let _look = use_resource({
         let looks = looks.clone();
         move || {
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             let secrets = seams().secrets;
             let looks = looks.clone();
             async move {
@@ -148,7 +148,7 @@ fn open_with(
         return;
     }
     working.set(Busy::Working);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let secrets = seams().secrets;
     // Spawned from a press, which is where a task is polled.
     spawn(async move {

@@ -4,11 +4,9 @@
 
 use super::super::app::App;
 use super::super::folder_open::Fetcher;
-use super::super::motion::belongs;
 use super::folder_tests::{acct_imap, folder};
 use crate::ui::fixtures::settle_quiet;
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
-use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
@@ -16,6 +14,8 @@ use mail_core::fetch::FolderFetch;
 use mail_core::sync::report::{AccountReport, Counts, PassEnd};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_kit::motion::belongs;
+use mail_ui_kit::view::{Shell, folder_of, places_with};
 use porter_core::AccountId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -346,7 +346,7 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     let (store, _dir, threads) = store();
     let places = places_with(
         &[],
-        &super::folder_places(&crate::ui::live::read_now(
+        &super::folder_places(&mail_ui_kit::live::read_now(
             &crate::ui::fixtures::client(&store),
             mail_client::query::Accounts,
         )),

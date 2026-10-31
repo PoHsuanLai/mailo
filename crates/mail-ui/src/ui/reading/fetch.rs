@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::ui::fetching::Need;
-use crate::ui::press::on_primary;
 use crate::ui::reauth::{Reauth, SIGN_IN};
+use mail_ui_kit::press::on_primary;
 
 type BodyFetch = dyn Fn(Client, MessageId) -> Result<(), (Retry, String)> + Send + Sync;
 type PartFetch =
@@ -228,7 +228,7 @@ pub(super) fn fetch_then_save(
 /// `landed` is the reader's, moved when the body arrives so the reader reads it again.
 #[component]
 pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signal<u64>) -> Element {
-    let client = crate::ui::live::use_client();
+    let client = mail_ui_kit::live::use_client();
     let address = use_hook(|| account_address(&client, account.clone()));
     // Mail fetches a body when its message is opened; so does this, where the account can. The
     // pane starts as Fetching with no operation yet, and the effect below starts it: an
@@ -243,7 +243,7 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
     let mut op = use_signal(Operation::default);
     let mut begin = move || {
         op.set(Operation::Running(PendingToken::start()));
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let fetch = fetchers().body;
         spawn(async move {
             // `spawn_blocking`: the fetch waits on the application's runtime (`Client::net`).

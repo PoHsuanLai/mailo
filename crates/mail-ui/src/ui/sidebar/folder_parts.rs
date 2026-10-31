@@ -1,6 +1,5 @@
 //! The small pieces the rows share: the name fields, a refusal in words, and the menu's items.
 
-use super::super::menu::MenuItem;
 use super::folder_act::child_path;
 use super::folder_row::run;
 use super::folder_tree::{Kind, Node};
@@ -11,6 +10,7 @@ use ds::components::lists::row::row::Outline;
 use ds::focus::request::use_focus_request;
 use ds::prelude::*;
 use mail_domain::{FolderWork, Subscription};
+use mail_ui_kit::menu::MenuItem;
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -105,7 +105,7 @@ pub(super) fn NameField(
             onkey: move |event: KeyboardEvent| {
                 // A chord is still the window's. Every other key is the field's: a letter typed
                 // into a name is not a shortcut.
-                if crate::ui::actions::is_chord(keys, &event.key(), event.modifiers()) {
+                if mail_ui_kit::actions::is_chord(keys, &event.key(), event.modifiers()) {
                     return;
                 }
                 event.stop_propagation();

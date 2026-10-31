@@ -10,10 +10,7 @@ mod further;
 mod redirect;
 pub(super) use further::FurtherMenus;
 
-use super::menu::{Floating, MenuItem, MenuKey, Right, anchor_for, menu_key, palette_groups};
-use super::motion::{act, act_all};
-use super::picks::{label_all, with_selection};
-use crate::ui::view::Shell;
+use super::picks::label_all;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
@@ -27,6 +24,10 @@ use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_client::when::Clock;
 use mail_domain::*;
+use mail_ui_kit::menu::{Floating, MenuItem, MenuKey, Right, anchor_for, menu_key, palette_groups};
+use mail_ui_kit::motion::with_selection;
+use mail_ui_kit::motion::{act, act_all};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
@@ -186,7 +187,7 @@ pub(super) fn SnoozeMenu(
     // The whole selection when this row is picked, as one gesture, through the op `mailo snooze`
     // applies; only the undo, the curl and the toast are the window's.
     let snooze = move |at: DateTime<Utc>| {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let ops = with_selection(shell, id)
             .into_iter()
             .map(|thread| (thread, Op::SetSnooze(Snooze::Until(at))))
@@ -205,9 +206,9 @@ pub(super) fn SnoozeMenu(
             }
         };
     }
-    let now = crate::ui::clock::now();
+    let now = mail_ui_kit::clock::now();
     // The Mac's menu has no second line, so each choice says its time at its trailing end.
-    let items = snooze_items(now, &chrono::Local, crate::ui::clock::hours());
+    let items = snooze_items(now, &chrono::Local, mail_ui_kit::clock::hours());
     rsx! {
         Floating {
             anchor,
@@ -219,7 +220,7 @@ pub(super) fn SnoozeMenu(
                     choosing.set(true);
                     return;
                 }
-                match mail_client::snooze::snooze_until(&phrase, crate::ui::clock::now(), &chrono::Local) {
+                match mail_client::snooze::snooze_until(&phrase, mail_ui_kit::clock::now(), &chrono::Local) {
                     Ok(at) => {
                         done();
                         snooze(at);
@@ -248,8 +249,8 @@ fn ChooseTime(
     on_close: EventHandler<()>,
 ) -> Element {
     let mut typed = use_signal(String::new);
-    let now = crate::ui::clock::now();
-    let hours = crate::ui::clock::hours();
+    let now = mail_ui_kit::clock::now();
+    let hours = mail_ui_kit::clock::hours();
     let reading = chosen_time(&typed(), now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
     let (validity, says) = match &reading {
@@ -284,7 +285,7 @@ fn ChooseTime(
                     match menu_key(&event.key().to_string()) {
                         Some(MenuKey::Enter) => {
                             event.prevent_default();
-                            if let Ok(at) = chosen_time(&typed(), crate::ui::clock::now(), &chrono::Local, hours) {
+                            if let Ok(at) = chosen_time(&typed(), mail_ui_kit::clock::now(), &chrono::Local, hours) {
                                 on_chosen.call(at);
                             }
                         }
@@ -328,7 +329,7 @@ pub(super) fn LabelMenu(
         label_items(&shell.read().labels, &summary, &typed())
             .into_iter()
             .partition(|item| item.key.starts_with("create:"));
-    let mut items = super::menu::narrowed(&base, &typed());
+    let mut items = mail_ui_kit::menu::narrowed(&base, &typed());
     items.extend(create);
     let account = summary.account;
     let empty = if shell.read().labels.is_empty() {
@@ -346,7 +347,7 @@ pub(super) fn LabelMenu(
             empty,
             oninput: move |value: String| typed.set(value),
             onpick: move |key: String| {
-                let client = crate::ui::live::client();
+                let client = mail_ui_kit::live::client();
                 // A label is one account's, so a picked row on another account is left alone.
                 let picked = with_selection(shell, id);
                 let targets: Vec<ThreadId> = picked
@@ -362,11 +363,11 @@ pub(super) fn LabelMenu(
                         account: account.clone(),
                         name: name.to_owned(),
                     };
-                    crate::ui::motion::keep(keep, move |made| {
+                    mail_ui_kit::motion::keep(keep, move |made| {
                         let Ok(Some(created)) = made else {
-                            crate::ui::motion::tell(
+                            mail_ui_kit::motion::tell(
                                 copy::errors::LABEL_NOT_MADE.to_owned(),
-                                crate::ui::motion::Follow::Nothing,
+                                mail_ui_kit::motion::Follow::Nothing,
                             );
                             return;
                         };
@@ -374,7 +375,7 @@ pub(super) fn LabelMenu(
                             .into_iter()
                             .map(|thread| (thread, Op::Label(created, Membership::In)))
                             .collect();
-                        act_all(&crate::ui::live::client(), shell, ops);
+                        act_all(&mail_ui_kit::live::client(), shell, ops);
                     });
                     done();
                     return;

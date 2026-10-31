@@ -1,6 +1,6 @@
 //! A settings schema's keys drawn as rows, the way the desktop's Settings app (detent) draws them:
 //! one row per key, and the control a key's kind gets (quire design/22 section 9.1). Nothing here knows a key by name, so it can move to quire's proposed shared
-//! `SettingsPage` whole; the values are the caller's (`value_of`, `with_value`), and a change is
+//! `SettingsPage` whole; the values are the caller's (`value_of`, `settings::with_value`), and a change is
 //! handed back as the new value.
 
 use dioxus::prelude::*;
@@ -131,29 +131,6 @@ pub(super) fn value_of(values: &toml::Value, key: &KeySpec) -> toml::Value {
         .try_fold(values, |at, part| at.get(part))
         .cloned()
         .unwrap_or_else(|| key.default.clone())
-}
-
-/// `values` with `path` set to `value`, the tables on the way made where missing.
-pub(in crate::ui) fn with_value(
-    mut values: toml::Value,
-    path: &str,
-    value: toml::Value,
-) -> toml::Value {
-    let mut at = &mut values;
-    let parts: Vec<&str> = path.split('.').collect();
-    for (index, part) in parts.iter().enumerate() {
-        let Some(table) = at.as_table_mut() else {
-            return values;
-        };
-        if index + 1 == parts.len() {
-            table.insert((*part).to_owned(), value);
-            return values;
-        }
-        at = table
-            .entry((*part).to_owned())
-            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-    }
-    values
 }
 
 /// A key's row: its label, its help when the schema gives one, and its control.

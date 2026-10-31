@@ -4,7 +4,7 @@
 //! A Space that shows every account there is has nothing to bring in, and its "+" goes straight
 //! to adding a new one.
 
-use crate::ui::menu::{MenuItem, Tile};
+use mail_ui_kit::menu::{MenuItem, Tile};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 

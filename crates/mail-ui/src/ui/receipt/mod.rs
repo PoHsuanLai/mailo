@@ -29,11 +29,11 @@ use mail_mime::{ReceiptAsk, ReturnPath};
 use mail_ui_model::settings::{MailSettings, ReadReceipts};
 use std::sync::Mutex;
 
-use super::press::on_primary;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::copy::{controls, status, tooltips};
 
 // One message's standing, with the name of its sender.
@@ -246,7 +246,7 @@ fn policy_of(settings: Option<Signal<MailSettings>>) -> ReadReceipts {
 pub(in crate::ui) fn Receipts(bodies: Bodies, settled: bool) -> Element {
     let looks = crate::ui::reading::use_looks();
     let settings = use_hook(try_consume_context::<Signal<MailSettings>>);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let asks = try_consume_context::<Asks>();
     // Under Always: once the thread is read, answer what asks, once for this thread and these
     // bodies.
@@ -312,8 +312,8 @@ pub(in crate::ui) const SEND_KEY: &str = "receipt-send";
 pub(in crate::ui) const DECLINE_KEY: &str = "receipt-decline";
 
 /// The two answers, as menu rows.
-pub(in crate::ui) fn items() -> Vec<crate::ui::menu::MenuItem> {
-    use crate::ui::menu::MenuItem;
+pub(in crate::ui) fn items() -> Vec<mail_ui_kit::menu::MenuItem> {
+    use mail_ui_kit::menu::MenuItem;
     vec![
         MenuItem::icon(SEND_KEY, Icon::Send, controls::SEND_RECEIPT),
         MenuItem::icon(DECLINE_KEY, Icon::X, controls::DONT_SEND_RECEIPT),
@@ -355,7 +355,7 @@ pub(in crate::ui) fn destination_note(question: &Question) -> Option<String> {
 pub(in crate::ui) fn give(message: MessageId, answer: ReceiptAnswer) {
     let looks =
         try_consume_context::<std::sync::Arc<Looks>>().unwrap_or_else(crate::ui::reading::looks);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let asks = try_consume_context::<Asks>();
     spawn(async move {
         let kept = tokio::task::spawn_blocking(move || {
@@ -365,9 +365,9 @@ pub(in crate::ui) fn give(message: MessageId, answer: ReceiptAnswer) {
         .unwrap_or(false);
         if !kept {
             // The mark stays, so the person can answer again, and the failure is said.
-            crate::ui::motion::tell(
+            mail_ui_kit::motion::tell(
                 mail_ui_model::copy::errors::RECEIPT_NOT_KEPT.to_owned(),
-                crate::ui::motion::Follow::Nothing,
+                mail_ui_kit::motion::Follow::Nothing,
             );
             return;
         }
@@ -403,7 +403,7 @@ pub(in crate::ui) fn ReceiptMark(message: MessageId) -> Element {
             onclick: on_primary(move || open.set(!open())),
         }
         if open() {
-            super::menu::Floating {
+            mail_ui_kit::menu::Floating {
                 placement: MenuPlacement::Popup,
                 anchor: at(),
                 title: tooltips::ASKS_FOR_A_RECEIPT.to_owned(),

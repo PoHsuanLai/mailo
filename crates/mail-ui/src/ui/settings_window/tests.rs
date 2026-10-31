@@ -8,8 +8,8 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, Work, chord, click, dispatching, drain_seen, rebuild_into, work,
 };
-use crate::ui::view::PageId;
 use dioxus::dioxus_core::{self, VirtualDom};
+use mail_ui_kit::view::PageId;
 use mail_ui_model::settings::{BrandLogos, LoadRemoteImages, MailSettings, Spelling};
 use std::sync::{Arc, Mutex};
 
@@ -270,7 +270,7 @@ async fn page_controls_write_settings_toml() {
 async fn an_account_s_switch_in_notifications_mutes_and_unmutes_it() {
     let built = work();
     let client = crate::ui::fixtures::client(&built.store);
-    let address = crate::ui::data::account_rows(&client)
+    let address = mail_ui_kit::data::account_rows(&client)
         .first()
         .map(|row| row.address.clone())
         .expect("the fixture has an account");
@@ -474,7 +474,7 @@ async fn vacation_reply_lists_the_accounts_and_a_row_pushes_its_reply() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, PageId::VACATION);
     let list = dioxus_ssr::render(&dom);
-    let rows: Vec<_> = crate::ui::data::account_rows(&crate::ui::fixtures::client(&built.store))
+    let rows: Vec<_> = mail_ui_kit::data::account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .filter(|row| !row.is_local())
         .collect();
@@ -656,7 +656,7 @@ async fn trusting_senders_with_none_yet_says_there_are_none() {
 /// into, and Use Downloads puts the default back. The dialog is the test's: no real one opens.
 #[tokio::test]
 async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
-    use crate::ui::pick::{Ask, Dialogs};
+    use mail_ui_kit::pick::{Ask, Dialogs};
     let built = work();
     let folder = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
     let (dialogs, asked) = Dialogs::answering(vec![folder.path().to_path_buf()]);

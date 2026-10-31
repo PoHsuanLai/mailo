@@ -7,8 +7,8 @@
 //! On a blocking thread, as the counts are. Nothing at all is read under the defaults, which keep
 //! mail until it is erased by hand.
 
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::settings::MailSettings;
 use std::time::Duration;
 
@@ -27,12 +27,12 @@ pub(super) fn use_eraser(shell: Signal<Shell>) {
         }
     });
     let _sweep = use_resource(move || {
-        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
+        let _ = mail_ui_kit::live::moved_for(mail_client::Topics::SUMMARIES);
         let _ = tick();
         let policy = settings
             .map(|settings| settings.read().mailboxes.erasing())
             .unwrap_or_default();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let mut shell = shell;
         async move {
             if policy.idle() {

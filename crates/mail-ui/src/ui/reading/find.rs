@@ -17,8 +17,6 @@
 //! runs from a task, once the document is free ([`free`]), and is one step with no await inside
 //! it. A find started while an older one still waits supersedes it (`Inner::pass`).
 
-use crate::ui::host::Host;
-use crate::ui::view::{Finding, Shell};
 use blitz_dom::{Attribute, BaseDocument, LocalName, Namespace, NodeId, QualName, ScrollBehavior};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
@@ -31,6 +29,8 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::search::{Found, MOST_FOUND, Step, find_in};
 use mail_domain::MessageId;
 use mail_reader::{FOUND_CURRENT, FOUND_MARK};
+use mail_ui_kit::host::Host;
+use mail_ui_kit::view::{Finding, Shell};
 use mail_ui_model::copy;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -588,9 +588,9 @@ pub(in crate::ui) fn open(mut shell: Signal<Shell>) -> bool {
 #[cfg(test)]
 mod open_tests {
     use super::open;
-    use crate::ui::view::Shell;
     use dioxus::prelude::*;
     use mail_domain::ThreadId;
+    use mail_ui_kit::view::Shell;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -687,7 +687,7 @@ pub(super) fn FindBar(shell: Signal<Shell>) -> Element {
                 kind: FieldKind::Search,
                 size: ControlSize::Small,
                 focus,
-                common: crate::ui::common::classed("find-field"),
+                common: mail_ui_kit::common::classed("find-field"),
                 suffix: said.map(|said| rsx! { span { class: "find-count", "{said}" } }),
                 oninput: move |text: String| {
                     if let Some(finding) = shell.write().find.as_mut() {
@@ -697,7 +697,7 @@ pub(super) fn FindBar(shell: Signal<Shell>) -> Element {
                 onkey: move |event: KeyboardEvent| {
                     // A chord is still the window's: ⌘F selects what is typed, ⌘G steps, ⌘K
                     // searches the mail. Every other key is the field's.
-                    if crate::ui::actions::is_chord(keys, &event.key(), event.modifiers()) {
+                    if mail_ui_kit::actions::is_chord(keys, &event.key(), event.modifiers()) {
                         return;
                     }
                     event.stop_propagation();
@@ -718,9 +718,9 @@ pub(super) fn FindBar(shell: Signal<Shell>) -> Element {
                 icon: Some(IconSource::Glyph(Icon::ChevronUp)),
                 label: copy::aria::PREVIOUS_MATCH.to_owned(),
                 title: Some(copy::aria::PREVIOUS_MATCH.to_owned()),
-                title_shortcut: Some(crate::ui::actions::tip_standard(StandardAction::FindPrevious)),
-                availability: crate::ui::press::available(any),
-                onclick: crate::ui::press::on_primary(move || step(shell, Step::Previous)),
+                title_shortcut: Some(mail_ui_kit::actions::tip_standard(StandardAction::FindPrevious)),
+                availability: mail_ui_kit::press::available(any),
+                onclick: mail_ui_kit::press::on_primary(move || step(shell, Step::Previous)),
             }
             Button {
                 bezel: Bezel::Toolbar,
@@ -728,14 +728,14 @@ pub(super) fn FindBar(shell: Signal<Shell>) -> Element {
                 icon: Some(IconSource::Glyph(Icon::ChevronDown)),
                 label: copy::aria::NEXT_MATCH.to_owned(),
                 title: Some(copy::aria::NEXT_MATCH.to_owned()),
-                title_shortcut: Some(crate::ui::actions::tip_standard(StandardAction::FindNext)),
-                availability: crate::ui::press::available(any),
-                onclick: crate::ui::press::on_primary(move || step(shell, Step::Next)),
+                title_shortcut: Some(mail_ui_kit::actions::tip_standard(StandardAction::FindNext)),
+                availability: mail_ui_kit::press::available(any),
+                onclick: mail_ui_kit::press::on_primary(move || step(shell, Step::Next)),
             }
             Button {
                 label: copy::controls::DONE.to_owned(),
-                title_shortcut: Some(crate::ui::actions::escape()),
-                onclick: crate::ui::press::on_primary(move || close(shell)),
+                title_shortcut: Some(mail_ui_kit::actions::escape()),
+                onclick: mail_ui_kit::press::on_primary(move || close(shell)),
             }
         }
     }

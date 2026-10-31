@@ -32,9 +32,9 @@ use super::desk::{Desk, use_desk};
 use super::page::Page;
 use super::wire::{Heard, hear};
 use super::{ComposerPage, SendPill, composing};
-use crate::ui::appearance::WindowDirs;
-use crate::ui::view::Shell;
 use mail_editor::{InputEvent, Node, Person, Pos, Range};
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::view::Shell;
 
 /// A fixed instant, so nothing here depends on the clock.
 fn at(minutes: i64) -> DateTime<Utc> {
@@ -189,11 +189,11 @@ fn body_dom(page: Page) -> (VirtualDom, Signal<Page>) {
 #[component]
 fn PageHarness(draft: Draft) -> Element {
     let mut shell = use_signal(Shell::default);
-    let today = use_signal(crate::ui::today::Today::default);
-    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
+    let today = use_signal(mail_ui_kit::today::Today::default);
+    let spaces = use_signal(|| mail_ui_kit::space::first_run(&[]));
     let dirs = try_consume_context::<WindowDirs>();
     // The settings, as the window provides them: from the config directory, when one was handed.
-    crate::ui::prefs::use_prefs(dirs.as_ref());
+    mail_ui_kit::prefs::use_prefs(dirs.as_ref());
     let desk = use_desk(today, spaces, dirs.clone());
     use_hook(|| shell.write().compose(&draft));
     DESK.with(|slot| slot.set(Some(desk)));
@@ -222,9 +222,9 @@ fn PageHarness(draft: Draft) -> Element {
 fn ScheduledRows(shell: Signal<Shell>) -> Element {
     let desk = use_context::<Desk>();
     let _ = desk.outbox.read();
-    let _ = crate::ui::live::moved();
-    let client = crate::ui::live::client();
-    let held = super::scheduled(&client, &crate::ui::space::Scope::All);
+    let _ = mail_ui_kit::live::moved();
+    let client = mail_ui_kit::live::client();
+    let held = super::scheduled(&client, &mail_ui_kit::space::Scope::All);
     rsx! {
         for listed in held.into_iter().filter(|draft| matches!(draft.state, SendState::Scheduled { .. })).map(Listed::Draft) {
             crate::ui::row::ListRow {

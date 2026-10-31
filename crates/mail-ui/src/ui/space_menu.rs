@@ -9,15 +9,15 @@
 //! Today.
 
 use crate::ui::add_account::{AddPick, Join, add_menu, offered_redirects, picked};
-use crate::ui::appearance::WindowDirs;
-use crate::ui::data::{AccountRow, use_account_rows};
-use crate::ui::space::{Handle, Mail, Member, Recall, SpaceId, with_member};
-use crate::ui::today::Today;
 use dioxus::prelude::*;
 use ds::components::app::spaces::SpaceMenu;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
 use ds::prelude::{Availability, Check, Icon, MenuImage};
 use mail_client::profile::ProfileId;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::data::{AccountRow, use_account_rows};
+use mail_ui_kit::space::{Handle, Mail, Member, Recall, SpaceId, with_member};
+use mail_ui_kit::today::Today;
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -121,7 +121,7 @@ pub(in crate::ui) fn MailSpaceMenu(handle: Handle, mut today: Signal<Today>) -> 
             on_deleted: move |space: SpaceId| {
                 today.write().drop_space(space);
                 if let Some(dirs) = try_consume_context::<WindowDirs>() {
-                    let _ = crate::ui::today::save(&dirs.state, &today.peek());
+                    let _ = mail_ui_kit::today::save(&dirs.state, &today.peek());
                 }
             },
         }

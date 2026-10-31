@@ -9,8 +9,6 @@
 
 use super::log::Entry;
 use super::{Shelf, forget, opener, reread};
-use crate::ui::motion::{motion, tell_through};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
 use ds::components::content::label::LabelRole;
@@ -22,6 +20,8 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_domain::ThreadId;
+use mail_ui_kit::motion::{motion, tell_through};
+use mail_ui_kit::view::Shell;
 use std::path::{Path, PathBuf};
 
 /// A row of the list: a file being saved, or one saved.
@@ -83,7 +83,7 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
                 title: "Downloads".to_owned(),
                 // A primary press only: a right click on the button is nobody's, and does not
                 // open the list either.
-                onclick: crate::ui::press::on_primary(move || {
+                onclick: mail_ui_kit::press::on_primary(move || {
                     if *open.peek() {
                         open.set(false);
                         return;
@@ -100,7 +100,7 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
             }
             if open() {
                 DownloadsList {
-                    anchor: crate::ui::menu::anchor_at(hold()),
+                    anchor: mail_ui_kit::menu::anchor_at(hold()),
                     shelf,
                     menu,
                     onclose: move |()| open.set(false),
@@ -123,7 +123,7 @@ fn DownloadsList(
     let held = shelf.read();
     let empty = held.log.entries.is_empty() && held.going.is_empty();
     let now = chrono::Utc::now();
-    let hours = crate::ui::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     let mut items: Vec<ListItem<Key>> = held
         .going
         .iter()
@@ -169,7 +169,7 @@ fn DownloadsList(
                             ..Common::default()
                         },
                         // A right click is the menu's, not an open.
-                        onclick: crate::ui::press::on_primary(move || open_file(path.clone(), onclose)),
+                        onclick: mail_ui_kit::press::on_primary(move || open_file(path.clone(), onclose)),
                     }
                 }
             },
@@ -336,6 +336,6 @@ fn failed(
     match done {
         Ok(Ok(())) => None,
         Ok(Err(why)) => Some(why.told(said)),
-        Err(error) => Some(crate::ui::remedy::plainly(said, error)),
+        Err(error) => Some(mail_ui_kit::remedy::plainly(said, error)),
     }
 }

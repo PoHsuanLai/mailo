@@ -311,7 +311,7 @@ fn save_all_writes_every_part_into_the_folder_chosen() {
 
     assert_eq!(
         window.asked(),
-        [mail_ui::ui::native::DialogAsk::Folder],
+        [mail_ui_kit::pick::Ask::Folder],
         "Save All asked for something other than a folder"
     );
     // (file, what it holds)
@@ -399,7 +399,7 @@ fn save_to_asks_for_a_folder_and_save_follows_the_setting() {
     window.until("the part is written into the folder chosen", |_| {
         escaped.exists()
     });
-    assert_eq!(window.asked(), [mail_ui::ui::native::DialogAsk::Folder]);
+    assert_eq!(window.asked(), [mail_ui_kit::pick::Ask::Folder]);
     let count = |dir: &std::path::Path| std::fs::read_dir(dir).expect("a folder").count();
     assert_eq!(count(chosen.path()), 1, "Save to… wrote more than its part");
 
@@ -444,7 +444,7 @@ fn the_more_menu_saves_the_files_into_a_folder_chosen() {
     });
     assert_eq!(
         window.asked(),
-        [mail_ui::ui::native::DialogAsk::Folder],
+        [mail_ui_kit::pick::Ask::Folder],
         "Save Attachments asked for something other than a folder"
     );
 }

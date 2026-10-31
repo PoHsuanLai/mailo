@@ -25,13 +25,13 @@ use ds::prelude::Keys;
 use mail_client::Client;
 use mail_domain::MessageId;
 
-use crate::ui::view::{LinkCard, Preview, Shell, Viewing};
+use mail_ui_kit::view::{LinkCard, Preview, Shell, Viewing};
 
 /// Open attachment `index` of `message` in Peek, and give the window the keyboard, so Esc and the
 /// arrows reach it.
 pub(in crate::ui) fn open(mut shell: Signal<Shell>, message: MessageId, index: usize) {
     shell.write().preview = Some(Preview::Part(Viewing::of(message, index)));
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// Open in Peek the part of `message` (as stored) whose `Content-ID` is `cid`, an inline image
@@ -65,20 +65,20 @@ fn inline_index(attachments: &[mail_domain::Attachment], cid: &str) -> Option<us
 /// Open a link's destination card in Peek.
 pub(in crate::ui) fn open_link(mut shell: Signal<Shell>, card: LinkCard) {
     shell.write().preview = Some(Preview::Link(card));
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// Close Peek, and give the keyboard back to the window.
 fn close(mut shell: Signal<Shell>) {
     shell.write().preview = None;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// A press on one of Peek's buttons: `act`, then the keyboard back to the window, so Esc and the
 /// arrows still reach Peek rather than the button.
 fn pressed(act: impl FnOnce()) {
     act();
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// Turn a PDF's pages by `by`.
@@ -98,7 +98,7 @@ fn step(mut shell: Signal<Shell>, by: i32) {
     let Some(Preview::Part(viewing)) = preview else {
         return;
     };
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     if let Some(next) = part::stepped(&client, viewing, by) {
         shell.write().preview = Some(Preview::Part(next));
     }
@@ -106,7 +106,7 @@ fn step(mut shell: Signal<Shell>, by: i32) {
 
 /// A key while Peek is open. It takes every key, so nothing reaches the conversation behind it.
 pub(in crate::ui) fn peek_key(shell: Signal<Shell>, keys: Keys, event: &KeyboardEvent) {
-    if crate::ui::actions::is_open_in_app(keys, &event.key(), event.modifiers()) {
+    if mail_ui_kit::actions::is_open_in_app(keys, &event.key(), event.modifiers()) {
         let preview = shell.peek().preview.clone();
         match preview {
             Some(Preview::Part(viewing)) => part::open_in_app(viewing),

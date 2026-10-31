@@ -6,12 +6,12 @@
 //! right click on the foot. What the rows are is data ([`menu_items`]) and pure, so a table test
 //! can say what the menu lists; [`MoreMenu`] draws the button and acts on a pick.
 
-use crate::ui::actions::tip_standard;
 use crate::ui::command::{Acts, Command, Settings, Sidebar, TidyUp, perform};
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_ui_kit::actions::tip_standard;
 use mail_ui_model::copy;
 
 /// The menu's rows: Tidy Up…, Settings and the sidebar's toggle, named by whether the sidebar is pinned
@@ -39,7 +39,7 @@ fn row(command: &'static dyn Command, name: &str) -> MenuItem<&'static dyn Comma
 /// The chevron at the foot's right and the menu it opens: quire's pull-down in its chevron face.
 #[component]
 pub(in crate::ui) fn MoreMenu(
-    shell: Signal<crate::ui::view::Shell>,
+    shell: Signal<mail_ui_kit::view::Shell>,
     pages: Signal<u32>,
     side_hidden: Signal<bool>,
 ) -> Element {
@@ -61,7 +61,7 @@ pub(in crate::ui) fn MoreMenu(
             open: Some(open()),
             on_open_change: move |to: Shown| open.set(to),
             // A window with no renderer (the tests) has no rect to hang the menu from.
-            anchor: Some(crate::ui::menu::anchor_at(tool())),
+            anchor: Some(mail_ui_kit::menu::anchor_at(tool())),
             common: Common {
                 aria_label: Some(copy::aria::SIDEBAR_MENU.to_owned()),
                 mounted: Some(EventHandler::new(move |event: MountedEvent| {

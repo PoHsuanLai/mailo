@@ -5137,6 +5137,7 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mail-ui",
+ "mail-ui-kit",
  "mail-ui-model",
  "mailo-crypto",
  "mailo-domain",
@@ -5426,7 +5427,6 @@ version = "0.1.0"
 dependencies = [
  "anyview-core",
  "anyview-peek",
- "arboard",
  "base64 0.22.1",
  "blitz-dom",
  "chordkit",
@@ -5449,6 +5449,7 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mail-ui",
+ "mail-ui-kit",
  "mail-ui-model",
  "mailo-archive",
  "mailo-crypto",
@@ -5481,6 +5482,42 @@ dependencies = [
  "uuid",
  "webbrowser",
  "zbus",
+]
+
+[[package]]
+name = "mail-ui-kit"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "blitz-dom",
+ "chordkit",
+ "chrono",
+ "dioxus",
+ "dioxus-native-dom",
+ "dioxus-ssr",
+ "ds",
+ "ds-blitz",
+ "ds-settings",
+ "image",
+ "log",
+ "mail-client",
+ "mail-core",
+ "mail-store",
+ "mail-ui-model",
+ "mailo-domain",
+ "mailo-editor",
+ "mailo-reader",
+ "porter-core",
+ "porter-provider",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "url",
+ "uuid",
+ "webbrowser",
 ]
 
 [[package]]

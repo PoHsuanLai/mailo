@@ -17,6 +17,7 @@ members = [
   "crates/mail-os",
   "crates/mail-edge",
   "crates/mail-ui-model",
+  "crates/mail-ui-kit",
   "crates/mail-ui",
   "crates/mail-cli",
   "crates/mail-intents",
@@ -43,6 +44,7 @@ mail-appkit = { path = "crates/mail-appkit" }
 mail-client = { path = "crates/mail-client" }
 mail-os = { path = "crates/mail-os" }
 mail-ui-model = { path = "crates/mail-ui-model" }
+mail-ui-kit = { path = "crates/mail-ui-kit" }
 mail-ui = { path = "crates/mail-ui" }
 mail-edge = { path = "crates/mail-edge" }
 mail-cli = { path = "crates/mail-cli" }

@@ -23,7 +23,8 @@ use crate::drive;
 use dioxus::prelude::*;
 use drive::Drive;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_ui::ui::native::{Browse, Fetch, Original, OriginalFrame};
+use mail_ui::ui::native::OriginalFrame;
+use mail_ui_kit::original::{Browse, Fetch, Original};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 

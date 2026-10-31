@@ -14,15 +14,11 @@ mod images;
 mod list_post;
 mod marking;
 mod peek;
-pub(in crate::ui) mod selection;
 mod source;
 mod thumb;
 mod tools;
 mod words;
 
-use super::press::on_primary;
-use super::text::{attachment_rows, stamp};
-use crate::ui::view::Shell;
 use attachments::Attachments;
 pub(in crate::ui) use cache::{frames, looks, use_frames, use_looks, use_warming};
 pub(in crate::ui) use column::reading_column;
@@ -39,10 +35,14 @@ use mail_client::message::{INLINE_BYTES, Sent};
 use mail_client::query::{Conversation, Messages};
 use mail_domain::*;
 use mail_reader::FrameBody;
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::text::{attachment_rows, stamp};
+use mail_ui_kit::view::Raw;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
-pub(in crate::ui) use source::{Raw, RawAsked, RawSheet, ask as ask_raw, close as close_raw};
+pub(in crate::ui) use source::{RawSheet, ask as ask_raw, close as close_raw};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -75,20 +75,20 @@ fn mark_read(client: &Client, thread: ThreadId, only: Option<MessageId>) {
     let (op, alone) = match only {
         Some(message) => (Some(Op::SetRead(ReadState::Read)), vec![(thread, message)]),
         None => (
-            super::ops::resolve(client, thread, OpKind::MarkRead),
+            mail_ui_kit::ops::resolve(client, thread, OpKind::MarkRead),
             Vec::new(),
         ),
     };
     let Some(op) = op else {
         return;
     };
-    let ticket = super::live::client().act(mail_client::Perform {
+    let ticket = mail_ui_kit::live::client().act(mail_client::Perform {
         ops: vec![(thread, op)],
         alone,
         then_erase: false,
     });
     // Nothing waits on it: what it commits draws the list and the reader again.
-    super::motion::when_done(ticket, |_| ());
+    mail_ui_kit::motion::when_done(ticket, |_| ());
 }
 
 /// How long the text size is left alone after a press before it is written to the settings: a
@@ -99,7 +99,7 @@ const ZOOM_SETTLES: std::time::Duration = std::time::Duration::from_millis(300);
 /// window, and written to the settings once the presses stop (the other windows and the next
 /// launch then draw messages at it).
 pub(in crate::ui) fn zoom(step: mail_ui_model::settings::ZoomStep) {
-    static PRESSES: crate::ui::prefs::Latest = crate::ui::prefs::Latest::new();
+    static PRESSES: mail_ui_kit::prefs::Latest = mail_ui_kit::prefs::Latest::new();
     let Some(mut shown) = try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>()
     else {
         log::warn!("text size: the window has no settings to change");
@@ -108,7 +108,7 @@ pub(in crate::ui) fn zoom(step: mail_ui_model::settings::ZoomStep) {
     let next = shown.peek().reading.text_zoom.stepped(step);
     shown.write().reading.text_zoom = next;
     let mine = PRESSES.press();
-    let write = crate::ui::prefs::change_later(move |settings| settings.reading.text_zoom = next);
+    let write = mail_ui_kit::prefs::change_later(move |settings| settings.reading.text_zoom = next);
     dioxus::dioxus_core::spawn_forever(async move {
         ds::base::time::clock::sleep(ZOOM_SETTLES).await;
         if !PRESSES.is_last(mine) {
@@ -219,20 +219,20 @@ pub(super) fn Reader(
     #[props(default)] only: Option<MessageId>,
     children: Element,
 ) -> Element {
-    let client = super::live::client();
+    let client = mail_ui_kit::live::client();
     // Where the sender's name marks a VIP: this window's shell.
     use_context_provider(|| crate::ui::vip::Marking { shell });
     // The read receipts the thread's messages ask about, which their headers draw a mark for.
     use_context_provider(|| super::receipt::Asks(Signal::new(Vec::new())));
-    let read = super::live::use_live(use_reactive!(|thread| Conversation(thread)));
+    let read = mail_ui_kit::live::use_live(use_reactive!(|thread| Conversation(thread)));
     let frames = use_frames();
     let looks = use_looks();
     // The person's own addresses, as the client keeps the accounts read: no store is asked.
-    let accounts = super::data::use_account_rows();
+    let accounts = mail_ui_kit::data::use_account_rows();
     // ⌘F's frames, which every message's frame below joins (`find`).
     let found = find::use_find(shell);
     // The client may have moved under this conversation, here or in another window.
-    let _ = crate::ui::live::moved_for(
+    let _ = mail_ui_kit::live::moved_for(
         mail_client::Topics::SUMMARIES
             | mail_client::Topics::LABELS
             | mail_client::Topics::ACCOUNTS
@@ -252,8 +252,8 @@ pub(super) fn Reader(
     // The link a right click in a message's frame was on, which the window's frames report
     // (`original::FrameMenus`); a reader with no window around it has none. And the Copy Link
     // menu it opens.
-    let frame_menus = use_signal(try_consume_context::<super::original::FrameMenus>);
-    let mut link_menu = use_signal(|| None::<super::original::LinkAsked>);
+    let frame_menus = use_signal(try_consume_context::<mail_ui_kit::original::FrameMenus>);
+    let mut link_menu = use_signal(|| None::<mail_ui_kit::original::LinkAsked>);
     // The words selected in a message a right click was on (`blocks::Sandbox`), and the Copy menu
     // they open where no link was.
     let mut words_asked = use_signal(|| None::<String>);
@@ -273,7 +273,7 @@ pub(super) fn Reader(
     // The window's consent to remote images, and this reader's claim on it; closing the reader
     // takes back what it granted.
     let consent = use_hook(|| {
-        try_consume_context::<super::original::Consent>().map(|consent| {
+        try_consume_context::<mail_ui_kit::original::Consent>().map(|consent| {
             let holder = consent.holder();
             (consent, holder)
         })
@@ -373,7 +373,7 @@ pub(super) fn Reader(
     let block_all = reading.remote_images == mail_ui_model::settings::LoadRemoteImages::Never;
     // Images that cannot be fetched the way Privacy says are not fetched another way: the line
     // over the message says so, where it would offer Load Images.
-    let route_problem = crate::ui::prefs::route_problem();
+    let route_problem = mail_ui_kit::prefs::route_problem();
     let pressed = shell.read().show_remote_images && !block_all;
     let peek = shell.read().peek;
     // What this reader sent to be rendered off the thread, and the count that moves when some of
@@ -538,8 +538,8 @@ pub(super) fn Reader(
             )
         })
         .collect();
-    let now = super::clock::now();
-    let hours = super::clock::hours();
+    let now = mail_ui_kit::clock::now();
+    let hours = mail_ui_kit::clock::hours();
     // The images line, only while images are held back: it is drawn on the newest such message
     // and asks about its sender. Images once shown say nothing more.
     let blocked = shown
@@ -638,7 +638,7 @@ pub(super) fn Reader(
                         ds::style::icon::render::Glyph { icon: Icon::Star, size: IconSize::Compact }
                     }
                 }
-                Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") }
+                Label { text: subject, style: LabelStyle::Title, common: mail_ui_kit::common::classed("reader-subject") }
             }
             super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone(), settled: !is_unread(&snapshot, thread, only) }
             super::unsubscribe::Lookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: way_out }
@@ -776,12 +776,12 @@ type Embedded = Vec<(MessageId, Vec<mail_mime::EmbeddedImage>)>;
 /// other image, a remote one among them, does nothing.
 fn use_frame_images(
     shell: Signal<Shell>,
-    holder: Option<super::original::Holder>,
+    holder: Option<mail_ui_kit::original::Holder>,
     embedded: Rc<RefCell<Embedded>>,
     client: Client,
 ) {
     let images = use_hook(|| {
-        try_consume_context::<super::original::FrameImages>().map(|images| images.listen())
+        try_consume_context::<mail_ui_kit::original::FrameImages>().map(|images| images.listen())
     });
     use_future(move || {
         let images = images.clone();
@@ -792,7 +792,8 @@ fn use_frame_images(
                 return;
             };
             while let Some(clicked) = images.next().await {
-                let Some((by, message)) = super::original::Holder::of_tag(&clicked.tag) else {
+                let Some((by, message)) = mail_ui_kit::original::Holder::of_tag(&clicked.tag)
+                else {
                     continue;
                 };
                 if by != holder {
@@ -841,7 +842,7 @@ fn ImagesHidden(
                 common: Common { aria_label: Some(controls::LOAD_IMAGES.to_owned()), ..Common::default() },
                 onclick: on_primary(move || {
                     shell.write().show_remote_images = true;
-                    super::host::Host::focus_app();
+                    mail_ui_kit::host::Host::focus_app();
                 }),
             }
             if let Some(email) = offer {
@@ -854,14 +855,14 @@ fn ImagesHidden(
                         // (`ReadingSettings::trust_images_from`); written to settings.toml and told
                         // to the other windows.
                         let email = email.clone();
-                        if let Err(why) = crate::ui::prefs::change(|settings| {
+                        if let Err(why) = mail_ui_kit::prefs::change(|settings| {
                             settings.reading.trust_images_from(&email);
                         }) {
                             log::warn!("remote images: {why}");
                         }
                         // This conversation's images now, whatever the write did.
                         shell.write().show_remote_images = true;
-                        super::host::Host::focus_app();
+                        mail_ui_kit::host::Host::focus_app();
                     }),
                 }
             }
@@ -873,9 +874,9 @@ fn ImagesHidden(
 /// frame was on. Preview Link shows where it goes in Peek (`peek::open_link`).
 #[component]
 fn LinkMenu(
-    asked: super::original::LinkAsked,
-    menus: Signal<Option<super::original::FrameMenus>>,
-    open: Signal<Option<super::original::LinkAsked>>,
+    asked: mail_ui_kit::original::LinkAsked,
+    menus: Signal<Option<mail_ui_kit::original::FrameMenus>>,
+    open: Signal<Option<mail_ui_kit::original::LinkAsked>>,
     shell: Signal<Shell>,
 ) -> Element {
     let mut open = open;
@@ -889,7 +890,7 @@ fn LinkMenu(
     let href = asked.href.clone();
     let text = asked.text.clone();
     rsx! {
-        super::menu::Floating {
+        mail_ui_kit::menu::Floating {
             anchor: None,
             placed: Some(at),
             title: String::new(),
@@ -897,10 +898,10 @@ fn LinkMenu(
             on_pick: move |key: String| {
                 open.set(None);
                 match key.as_str() {
-                    COPY_LINK => super::host::Host::copy(&href),
+                    COPY_LINK => mail_ui_kit::host::Host::copy(&href),
                     PREVIEW_LINK => peek::open_link(
                         shell,
-                        crate::ui::view::LinkCard { text: text.clone(), href: href.clone() },
+                        mail_ui_kit::view::LinkCard { text: text.clone(), href: href.clone() },
                     ),
                     OPEN_LINK => {
                         if let Some(menus) = menus.peek().as_ref() {
@@ -946,7 +947,7 @@ fn MessageMenu(
     // A message that asks for a read receipt offers the two answers here as well as in its mark.
     let question = super::receipt::question_of(message);
     rsx! {
-        super::menu::Floating {
+        mail_ui_kit::menu::Floating {
             anchor: None,
             placed: Some(placed),
             title: String::new(),
@@ -960,7 +961,7 @@ fn MessageMenu(
                 let raw = match key.as_str() {
                     COPY => {
                         if let Some(text) = &asked.text {
-                            super::host::Host::copy(text);
+                            mail_ui_kit::host::Host::copy(text);
                         }
                         return;
                     }
@@ -984,9 +985,9 @@ fn message_items(
     keymap: &chordkit::Keymap,
     copy: bool,
     receipt: bool,
-) -> Vec<super::menu::MenuItem> {
-    use super::actions::{Own, hint_own};
-    use super::menu::{MenuItem, Right};
+) -> Vec<mail_ui_kit::menu::MenuItem> {
+    use mail_ui_kit::actions::{Own, hint_own};
+    use mail_ui_kit::menu::{MenuItem, Right};
     let rows: Vec<MenuItem> = [
         (
             SHOW_HEADERS,
@@ -1017,7 +1018,7 @@ const PREVIEW_LINK: &str = "preview-link";
 const COPY_LINK: &str = "copy-link";
 
 /// The link menu's rows, in the Mac's order.
-fn link_items() -> Vec<super::menu::MenuItem> {
+fn link_items() -> Vec<mail_ui_kit::menu::MenuItem> {
     [
         (OPEN_LINK, mail_ui_model::copy::menus::OPEN_LINK, Icon::Link),
         (
@@ -1028,7 +1029,7 @@ fn link_items() -> Vec<super::menu::MenuItem> {
         (COPY_LINK, mail_ui_model::copy::menus::COPY_LINK, Icon::Copy),
     ]
     .into_iter()
-    .map(|(key, name, icon)| super::menu::MenuItem::icon(key, icon, name))
+    .map(|(key, name, icon)| mail_ui_kit::menu::MenuItem::icon(key, icon, name))
     .collect()
 }
 

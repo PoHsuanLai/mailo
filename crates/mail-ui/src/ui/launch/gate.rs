@@ -5,12 +5,12 @@
 
 use super::Shell;
 use crate::ui::app::Frame;
-use crate::ui::appearance::WindowDirs;
-use crate::ui::common::Problem;
-use crate::ui::{keymap, space, today};
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::{keymap, space, today};
 use mail_ui_model::copy;
 use mail_ui_model::damage::{Damaged, moved, of_config, set_aside};
 

@@ -2,7 +2,7 @@
 //! and what a place's, a Space's or a person's row is and does.
 
 use super::*;
-use crate::ui::menu::{Run, Tile, Tone};
+use mail_ui_kit::menu::{Run, Tile, Tone};
 
 fn row(key: &str, name: &str, group: &str) -> MenuItem {
     MenuItem {

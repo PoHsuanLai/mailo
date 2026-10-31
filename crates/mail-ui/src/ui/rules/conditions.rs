@@ -13,10 +13,10 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::LabelId;
 
-use super::super::common::classed;
-use super::super::press::{available, on_primary};
 use super::when::{self, Condition, Field, Joined, STATES, Test};
 use super::work;
+use mail_ui_kit::common::classed;
+use mail_ui_kit::press::{available, on_primary};
 use mail_ui_model::copy;
 
 /// How the condition is being written.

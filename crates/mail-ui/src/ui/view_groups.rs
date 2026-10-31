@@ -5,15 +5,15 @@
 //! from the same pieces. Like the menu's, the bands are over the rows loaded, in list order.
 
 use super::page::{Band, by_key, date_bands, group_page, titled};
-use crate::ui::view::Grouping;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
     Attachments, GroupKey, LabelId, MailboxRole, Pin, Property, ReadState, Star, ThreadSummary,
 };
+use mail_ui_kit::view::Grouping;
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
 
-/// Group `threads` the way the list is grouped now ([`crate::ui::view::Shell::grouping`]).
+/// Group `threads` the way the list is grouped now ([`mail_ui_kit::view::Shell::grouping`]).
 pub(super) fn group_list<T: Borrow<ThreadSummary>, Tz: TimeZone>(
     threads: Vec<T>,
     by: &Grouping,
@@ -105,7 +105,7 @@ fn where_it_is(thread: &ThreadSummary) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::view::PageGroup;
+    use mail_ui_kit::view::PageGroup;
 
     use mail_domain::*;
 

@@ -15,9 +15,7 @@
 use super::account::{AccountPage, back};
 use super::rows::link_row;
 use crate::ui::add_account::Join;
-use crate::ui::common::{add_mark, tile};
 use crate::ui::provider_chip;
-use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
@@ -25,6 +23,8 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
+use mail_ui_kit::common::{add_mark, tile};
+use mail_ui_kit::view::{AccountStep, AccountsPage, Shell};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -46,7 +46,7 @@ fn row_id(account: &AccountId) -> String {
 #[component]
 pub(super) fn Accounts(shell: Signal<Shell>) -> Element {
     let path = shell.read().accounts_pane.path.clone();
-    let named = crate::ui::data::use_account_rows();
+    let named = mail_ui_kit::data::use_account_rows();
     let title = use_callback(move |page: AccountsPage| match page {
         AccountsPage::List => copy::titles::ACCOUNTS.to_owned(),
         AccountsPage::Account(account) => named
@@ -88,12 +88,12 @@ pub(super) fn Accounts(shell: Signal<Shell>) -> Element {
 #[component]
 fn AccountList(shell: Signal<Shell>) -> Element {
     // Read again when an account comes or goes.
-    let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
+    let _ = mail_ui_kit::live::moved_for(mail_client::Topics::ACCOUNTS);
     // The add menu while it is open (the providers that sign in straight in the browser), hung
     // from the Add Account… row.
     let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);
     let mut add_row = use_signal(|| None::<MountedRef>);
-    let rows = crate::ui::data::use_account_rows()();
+    let rows = mail_ui_kit::data::use_account_rows()();
     let mut items: Vec<ListItem<String>> = Vec::new();
     if rows.is_empty() {
         items.push(ListItem::row(

@@ -3,10 +3,10 @@ use crate::ui::fixtures::{Seen, settle_until};
 use crate::ui::fixtures::{
     acct_account, click, dispatching, held_and_remote, rebuild_into, seeded,
 };
-use crate::ui::view::Shell;
 use dioxus_core::VirtualDom;
 use mail_core::{SqliteStore, Store as _};
 use mail_domain::*;
+use mail_ui_kit::view::Shell;
 use std::sync::Arc;
 use std::time::Duration;
 

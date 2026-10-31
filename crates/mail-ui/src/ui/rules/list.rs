@@ -20,16 +20,16 @@ use ds::root::common::Common;
 use mail_domain::{Rule, RuleState};
 use porter_core::AccountId;
 
-use super::super::common::{add_mark, classed};
-use super::super::data::AccountRow;
 use super::super::files::Phase;
-use super::super::menu::{Floating, MenuItem};
-use super::super::motion::{Follow, Restore, tell};
 use super::server::reach;
 use super::work::{self, Listed, Step};
 use super::{Said, open, row_id};
-use crate::ui::common::Problem;
-use crate::ui::view::{RulesAt, RulesPage as Showing, Shell};
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::common::{add_mark, classed};
+use mail_ui_kit::data::AccountRow;
+use mail_ui_kit::menu::{Floating, MenuItem};
+use mail_ui_kit::motion::{Follow, Restore, tell};
+use mail_ui_kit::view::{RulesAt, RulesPage as Showing, Shell};
 use mail_ui_model::copy;
 
 /// The keys of the list's rows that are not a rule's.
@@ -48,7 +48,8 @@ pub(super) fn RulesList(
     running: Signal<String>,
 ) -> Element {
     // A write of ours, or the toast's Undo putting a deleted rule back, moves the store.
-    let _ = crate::ui::live::moved_for(mail_client::Topics::RULES | mail_client::Topics::ACCOUNTS);
+    let _ =
+        mail_ui_kit::live::moved_for(mail_client::Topics::RULES | mail_client::Topics::ACCOUNTS);
     // The rule whose menu is open, and where the right click was.
     let menu = use_signal(|| None::<(Listed, Rect)>);
     // What a rule's menu asks, done here, as the menu closes on the pick.
@@ -69,7 +70,7 @@ pub(super) fn RulesList(
             }
         };
     };
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let (rules, failed) = match work::listed(&client, row.id.clone()) {
         Ok(rules) => (rules, None),
         Err(why) => (Vec::new(), Some(why)),
@@ -201,7 +202,7 @@ fn RuleRow(
             accessory: Accessory::Toggle {
                 value: if on { Check::On } else { Check::Off },
                 on_toggle: EventHandler::new(move |_| {
-                    let client = crate::ui::live::client();
+                    let client = mail_ui_kit::live::client();
                     let state = if on { RuleState::Disabled } else { RuleState::Enabled };
                     wrote(work::switch(&client, &toggled, state), &row, said, pushed);
                 }),
@@ -264,7 +265,7 @@ fn RuleMenu(
     menu: Signal<Option<(Listed, Rect)>>,
     acted: Callback<(String, Rule)>,
 ) -> Element {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let rules = work::listed(&client, row.id.clone()).unwrap_or_default();
     let place = rules.iter().position(|one| one.rule.id == listed.rule.id);
     let first = place == Some(0);
@@ -292,7 +293,7 @@ fn RuleMenu(
 
 /// Do what `key` in a rule's menu asks.
 fn act(key: &str, rule: &Rule, row: &AccountRow, said: Said, pushed: Callback<AccountRow>) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     match key {
         UP | DOWN => {
             let step = if key == UP { Step::Up } else { Step::Down };

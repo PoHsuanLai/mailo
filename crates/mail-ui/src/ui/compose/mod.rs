@@ -43,12 +43,12 @@ mod wire;
 #[cfg(test)]
 pub(in crate::ui) mod tests;
 
-use crate::ui::actions::{self, Heard, Own};
 use ds::components::controls::button_model::Bezel;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
+use mail_ui_kit::actions::{self, Heard, Own};
 
 use dioxus::prelude::*;
 use mail_client::Client;
@@ -77,9 +77,9 @@ pub use spell::Dictionaries;
 pub(in crate::ui) use spell::use_test_dictionaries;
 pub(in crate::ui) use templates::{every as every_template, template_rows};
 
-use super::press::on_primary;
-use crate::ui::view::Shell;
 use mail_client::password::Password;
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// The fold after Send: quire's timer for the fade, and what happens once it has
@@ -105,7 +105,7 @@ pub(in crate::ui) fn composing(shell: &Shell) -> Option<(DraftId, PageKind)> {
 
 /// Whether `draft` answers a message (a reply, under its thread) or stands alone.
 fn kind_of(draft: DraftId) -> PageKind {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     match client.stored().draft(draft) {
         Ok(stored) if stored.in_reply_to.is_some() => PageKind::Reply,
         _ => PageKind::New,
@@ -119,7 +119,7 @@ pub(in crate::ui) fn ComposerPage(draft: DraftId, shell: Signal<Shell>) -> Eleme
     // it was sealed. Cancel Sending makes it a draft again, and the page then writes it here.
     // Asked once: a page scheduled while it is open folds away as it did.
     let mut held = use_signal(|| {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         client
             .stored()
             .draft(draft)
@@ -147,9 +147,9 @@ pub(in crate::ui) fn ComposerPage(draft: DraftId, shell: Signal<Shell>) -> Eleme
 fn Writing(draft: DraftId, shell: Signal<Shell>) -> Element {
     let desk = use_context::<Desk>();
     let loaded = use_hook(|| {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let mut parked = desk.parked;
-        let compose = crate::ui::prefs::current().compose;
+        let compose = mail_ui_kit::prefs::current().compose;
         let page = life::load(&client, draft, &mut parked.write(), &compose);
         desk::unpark(desk, draft);
         page
@@ -222,7 +222,7 @@ fn PageView(initial: Page, shell: Signal<Shell>) -> Element {
                 // Taken here and written on a blocking thread, so a slow disk never holds a
                 // frame. The next save is not asked for until this one is done, and a save on
                 // close or Send meanwhile is a later page, which this one does not overwrite.
-                let client = crate::ui::live::client();
+                let client = mail_ui_kit::live::client();
                 let (taken, stamp) = (page.peek().clone(), life::stamp());
                 let now = chrono::Utc::now();
                 let saved = tokio::task::spawn_blocking(move || {
@@ -253,7 +253,7 @@ fn PageView(initial: Page, shell: Signal<Shell>) -> Element {
     // bar and Send are not left under the window's edge.
     use_hook(|| {
         if page.peek().kind == PageKind::Reply {
-            super::host::Host::scroll_into_view(".inline-reply .c-foot");
+            mail_ui_kit::host::Host::scroll_into_view(".inline-reply .c-foot");
         }
     });
     // Files dropped on the page from a file manager are attached as picked ones are.
@@ -415,7 +415,7 @@ fn send_page(
     anyway: Anyway,
     passphrase: Option<Password>,
 ) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let secrets = super::pgp::seams().secrets;
     let sent = life::send(
         &client,
@@ -425,9 +425,9 @@ fn send_page(
         life::grace(),
         life::Dated {
             // The window's clock, which a reminder asked for here is later measured against.
-            now: super::clock::now(),
+            now: mail_ui_kit::clock::now(),
             zone: &chrono::Local,
-            clock: super::clock::hours(),
+            clock: mail_ui_kit::clock::hours(),
         },
     );
     match sent {
@@ -476,15 +476,15 @@ fn seal_act(mut page: Signal<Page>, desk: Desk, folding: Folding, act: BarAct) {
         }
         // Making a key or importing a certificate is the sending account's page's, in Settings.
         BarAct::OpenKeys => {
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             match client.stored().draft(page.peek().draft) {
                 Ok(stored) => super::settings_window::open_account(stored.account),
-                Err(_) => super::settings_window::open_at(crate::ui::view::PageId::ACCOUNTS),
+                Err(_) => super::settings_window::open_at(mail_ui_kit::view::PageId::ACCOUNTS),
             }
         }
         BarAct::LookUp(addresses) => {
             page.write().seal_bar = SealBar::Looking(addresses.clone());
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             let lookup = super::pgp::seams().lookup;
             let draft = page.peek().draft;
             spawn(async move {
@@ -571,7 +571,7 @@ fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, _desk: Desk) {
 /// brings back what was on the page; the undo is the window's (the toast's tab and ⌘Z), and puts
 /// the draft back in Drafts. A draft already on its way is refused, as before (334b758).
 fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let draft = page.peek().draft;
     let kept = life::save(&client, &mut page.write(), chrono::Utc::now());
     let stored = match kept {
@@ -586,7 +586,7 @@ fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk) {
             page.write().phase = Phase::Closed;
             forget(shell, desk, draft, undo);
         }
-        Err(why) => page.write().notice = Some(crate::ui::remedy::told(why)),
+        Err(why) => page.write().notice = Some(mail_ui_kit::remedy::told(why)),
     }
 }
 
@@ -624,7 +624,7 @@ fn forget(mut shell: Signal<Shell>, desk: Desk, draft: DraftId, undo: mail_clien
     if shell.peek().composing.as_ref().map(|open| open.draft) == Some(draft) {
         shell.write().close_composer();
     }
-    crate::ui::motion::record(
+    mail_ui_kit::motion::record(
         shell,
         vec![undo],
         mail_ui_model::copy::toasts::DRAFT_DELETED.to_owned(),
@@ -634,7 +634,7 @@ fn forget(mut shell: Signal<Shell>, desk: Desk, draft: DraftId, undo: mail_clien
 /// Delete the stored draft `draft`, as Drafts' row menu does, and offer it back. Its composer
 /// closes if it is the one open, and Today lists it no more.
 pub(in crate::ui) fn delete_stored_draft(shell: Signal<Shell>, draft: DraftId) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let desk = consume_context::<Desk>();
     let outcome = client
         .stored()
@@ -643,9 +643,9 @@ pub(in crate::ui) fn delete_stored_draft(shell: Signal<Shell>, draft: DraftId) {
         .and_then(|stored| deleted(&client, stored));
     match outcome {
         Ok(undo) => forget(shell, desk, draft, undo),
-        Err(why) => crate::ui::motion::tell(
-            crate::ui::remedy::told(why),
-            crate::ui::motion::Follow::Nothing,
+        Err(why) => mail_ui_kit::motion::tell(
+            mail_ui_kit::remedy::told(why),
+            mail_ui_kit::motion::Follow::Nothing,
         ),
     }
 }

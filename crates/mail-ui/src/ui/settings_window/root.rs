@@ -9,14 +9,14 @@
 
 use super::{SettingsAsked, SettingsView};
 use crate::ui::app::Frame;
-use crate::ui::appearance::WindowDirs;
-use crate::ui::space::{Recall, Spaces};
 use crate::ui::style::STYLE;
-use crate::ui::view::{PageId, Shell};
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds::components::app::spaces::{Switched, use_spaces};
 use ds_settings::use_environment;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::space::{Recall, Spaces};
+use mail_ui_kit::view::{PageId, Shell};
 use std::sync::Arc;
 
 /// The window as quire opens it: the desktop's settings and mailo's own watched as the first
@@ -31,7 +31,7 @@ fn Watched() -> Element {
     let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
     let environment = use_environment(desktop.store(), desktop.prefs.clone(), spawner);
     use_context_provider(|| environment);
-    crate::ui::prefs::use_window_settings();
+    mail_ui_kit::prefs::use_window_settings();
     rsx! { SettingsShell {} }
 }
 
@@ -47,24 +47,24 @@ fn SettingsShell() -> Element {
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
     crate::ui::provider_chip::use_fetch_missing(icons);
-    crate::ui::host::use_window_host();
+    mail_ui_kit::host::use_window_host();
     let dirs = try_consume_context::<WindowDirs>();
     let asked = try_consume_context::<SettingsAsked>();
     let first = asked.as_ref().map(SettingsAsked::at).unwrap_or_default();
     let shell = use_signal({
         let dirs = dirs.clone();
         move || {
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             Shell {
                 settings: Some(first.page()),
                 accounts_pane: first.pane(),
                 spaces_pane: first.spaces_pane(),
                 contacts_pane: first.contacts_pane(),
-                appearance: try_consume_context::<crate::ui::view::Appearance>()
+                appearance: try_consume_context::<mail_ui_kit::view::Appearance>()
                     .unwrap_or_default(),
                 keymap: dirs
                     .as_ref()
-                    .map(|dirs| crate::ui::keymap::load(&dirs.config))
+                    .map(|dirs| mail_ui_kit::keymap::load(&dirs.config))
                     .unwrap_or_default(),
                 labels: client.query().known_labels(),
                 accounts: client.compose().sending_accounts(),
@@ -93,9 +93,9 @@ fn SettingsShell() -> Element {
             let dirs = dirs.clone();
             move || {
                 dirs.as_ref()
-                    .map(crate::ui::space::load)
+                    .map(mail_ui_kit::space::load)
                     .or_else(try_consume_context::<Spaces>)
-                    .unwrap_or_else(|| crate::ui::space::first_run(&[]))
+                    .unwrap_or_else(|| mail_ui_kit::space::first_run(&[]))
             }
         },
         |spaces: &Spaces| crate::ui::frame::keep(spaces),
@@ -104,10 +104,10 @@ fn SettingsShell() -> Element {
     );
     use_context_provider(|| handle);
     let spaces = handle.spaces();
-    let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
-    crate::ui::hover::use_hover();
-    crate::ui::motion::use_motion();
-    let keys = crate::ui::actions::use_window_keys();
+    let _ = mail_ui_kit::prefs::use_prefs(dirs.as_ref());
+    mail_ui_kit::hover::use_hover();
+    mail_ui_kit::motion::use_motion();
+    let keys = mail_ui_kit::actions::use_window_keys();
     // Key bindings and Spaces another window writes; this one tells them its own through
     // `frame::keep` and the Keyboard page. Settings are watched by the root.
     crate::ui::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
@@ -138,10 +138,10 @@ fn SettingsShell() -> Element {
             style { {STYLE} }
             div { class: "app",
                 tabindex: "0",
-                onmounted: crate::ui::host::Host::app_mounted,
+                onmounted: mail_ui_kit::host::Host::app_mounted,
                 onkeydown: on_key,
                 SettingsView { shell }
-                crate::ui::motion::Toast { shell }
+                mail_ui_kit::motion::Toast { shell }
             }
         }
     }

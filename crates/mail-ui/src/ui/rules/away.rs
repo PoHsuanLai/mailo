@@ -17,13 +17,13 @@ use mail_client::Client;
 use mail_client::when::Clock;
 use mail_domain::{DateRange, Vacation};
 
-use super::super::common::classed;
-use super::super::data::AccountRow;
 use super::super::menus::when_words;
-use super::super::press::{available, on_primary};
 use super::server::{configured, reach_away};
-use crate::ui::common::Problem;
-use crate::ui::remedy::plainly;
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::common::classed;
+use mail_ui_kit::data::AccountRow;
+use mail_ui_kit::press::{available, on_primary};
+use mail_ui_kit::remedy::plainly;
 use mail_ui_model::copy;
 
 /// Whether the reply is wanted.
@@ -237,7 +237,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
     let mut away = use_signal({
         let row = row.clone();
         move || {
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             load(&client, &row, Utc::now(), &chrono::Local)
         }
     });
@@ -262,7 +262,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
     }
     let (asks_subject, asks_addresses) = server.as_ref().map_or((true, true), fields_for);
     let now = Utc::now();
-    let hours = crate::ui::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     let form = away();
     let on = form.reply == Reply::On;
     // A date that cannot be read is its field's error, and Keep Reply waits for both to read.
@@ -290,7 +290,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                     onchange: move |_| {
                         if on {
                             away.write().reply = Reply::Off;
-                            let client = crate::ui::live::client();
+                            let client = mail_ui_kit::live::client();
                             let form = away.peek().clone();
                             // Switching off says nothing to a server that was never told: a
                             // reply set elsewhere stays, as `mailo vacation off` leaves it.
@@ -377,7 +377,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         label: copy::controls::KEEP_REPLY.to_owned(),
                         availability: available(readable),
                         onclick: on_primary(move || {
-                            let client = crate::ui::live::client();
+                            let client = mail_ui_kit::live::client();
                             let form = away.peek().clone();
                             match save(&client, &keep, &form, Utc::now(), &chrono::Local, hours) {
                                 Ok(_) => {

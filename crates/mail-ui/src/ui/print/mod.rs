@@ -20,7 +20,6 @@ mod paper;
 
 pub(super) use tool::PrintMenu;
 
-use super::motion::{motion, tell_through};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
@@ -28,6 +27,7 @@ use mail_client::Client;
 use mail_client::html_document::Printed;
 use mail_domain::ThreadId;
 use mail_reader::Pages;
+use mail_ui_kit::motion::{motion, tell_through};
 use std::path::Path;
 
 pub use native_print::Printer;
@@ -69,7 +69,7 @@ where
     client
         .print()
         .document(*job.thread.as_uuid(), zone, now, job.pages, clock)
-        .map_err(crate::ui::remedy::told)
+        .map_err(mail_ui_kit::remedy::told)
 }
 
 /// The file Save for printing writes ends in this.
@@ -128,11 +128,11 @@ pub(in crate::ui) fn print(job: Job) {
 /// thread, and say where.
 pub(in crate::ui) fn save(job: Job) {
     let said = motion();
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let dir = crate::ui::files::save_dir();
     let sources = Sources::window();
     let saving = crate::ui::downloads::Saving::quick();
-    let hours = crate::ui::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || {
             save_into(
@@ -169,8 +169,6 @@ pub(in crate::ui) fn save(job: Job) {
 
 /// Print: the PDF, the dialog, and the seam between them.
 mod native_print {
-    use super::super::motion::{motion, tell_through};
-    use super::super::original::{Consent, FetchImage, ReaderNet, data_uri};
     use super::Job;
     use super::paper::{self, Paper};
     use chrono::{DateTime, TimeZone, Utc};
@@ -178,6 +176,8 @@ mod native_print {
     use ds_blitz::{PrintError, PrintOutcome};
     use mail_client::html_document::{Pictures, Printed};
     use mail_domain::MessageId;
+    use mail_ui_kit::motion::{motion, tell_through};
+    use mail_ui_kit::original::{Consent, FetchImage, ReaderNet, data_uri};
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -391,10 +391,10 @@ mod native_print {
             tell_through(said, BUSY.to_owned());
             return;
         };
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let paper = Paper::from_env();
         let sources = Sources::window();
-        let hours = crate::ui::clock::hours();
+        let hours = mail_ui_kit::clock::hours();
         dioxus::core::spawn_forever(async move {
             let done = tokio::task::spawn_blocking(move || {
                 let _claim = claim;

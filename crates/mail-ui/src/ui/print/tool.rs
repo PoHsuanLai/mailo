@@ -1,13 +1,13 @@
 //! Print…, a further menu off the reader's ⋯: the Mac's File menu's printing commands, hung
 //! under the ⋯ as the reader's other menus are.
 
-use super::super::menu::anchor_at;
 use super::{Job, print, save};
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::ThreadId;
 use mail_reader::Pages;
+use mail_ui_kit::menu::anchor_at;
 
 /// What a row of the menu does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

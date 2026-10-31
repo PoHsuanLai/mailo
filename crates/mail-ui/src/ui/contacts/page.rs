@@ -32,10 +32,10 @@ use mail_client::contacts::{CardId, GroupHome, GroupId, PersonCard};
 use mail_pim::Postal;
 
 use super::book;
-use crate::ui::motion::{Follow, tell};
-use crate::ui::pick::{Ask, choose, file_name};
-use crate::ui::press::on_primary;
-use crate::ui::view::{ContactsPage, Shell};
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::pick::{Ask, choose, file_name};
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::{ContactsPage, Shell};
 use mail_ui_model::copy;
 
 /// The stack's element id: its back buttons are `contacts-pane-back-root` and `-detail`.
@@ -73,7 +73,7 @@ pub(in crate::ui) fn back(mut shell: Signal<Shell>) {
 }
 
 fn client() -> Client {
-    crate::ui::live::client()
+    mail_ui_kit::live::client()
 }
 
 /// The first character of `name`, uppercased, for an avatar.
@@ -179,7 +179,7 @@ fn ContactList(shell: Signal<Shell>, edits: Signal<u64>) -> Element {
         copy::controls::NEW_CONTACT.to_owned(),
         rsx! {
             Row {
-                leading: crate::ui::common::add_mark(),
+                leading: mail_ui_kit::common::add_mark(),
                 title: copy::controls::NEW_CONTACT,
                 size: RowSize::Settings,
                 onclick: move |_| push(shell, ContactsPage::NewPerson),
@@ -222,7 +222,7 @@ fn ContactList(shell: Signal<Shell>, edits: Signal<u64>) -> Element {
         copy::controls::NEW_GROUP.to_owned(),
         rsx! {
             Row {
-                leading: crate::ui::common::add_mark(),
+                leading: mail_ui_kit::common::add_mark(),
                 title: copy::controls::NEW_GROUP,
                 size: RowSize::Settings,
                 onclick: move |_| make_group(shell, edits),

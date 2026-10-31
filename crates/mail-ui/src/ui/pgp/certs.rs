@@ -21,9 +21,6 @@ use mail_client::Client;
 use mail_client::prelude::SigningStore;
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
 
-use super::super::common::{add_mark, tile};
-use super::super::press::{available, on_primary};
-use super::super::sidebar::tagged;
 use super::actions::{Act, Opened, RowActions, line};
 use super::key_row::Confirm;
 use super::keys::{Done, Job, write};
@@ -31,6 +28,9 @@ use super::{Busy, Seams, cert_short, whose};
 use mail_client::password::Password;
 use mail_client::pgp::WithSecret;
 use mail_client::smime::SmimeError;
+use mail_ui_kit::common::tagged;
+use mail_ui_kit::common::{add_mark, tile};
+use mail_ui_kit::press::{available, on_primary};
 use mail_ui_model::copy::menus;
 
 /// The certificates in the order the sheet lists them: the user's own — those whose private
@@ -102,7 +102,7 @@ pub(in crate::ui) fn work(client: &Client, seams: &Seams, job: CertJob) -> Resul
             if cert.secret == SecretHeld::Absent {
                 return Ok(Done::Gone(
                     said,
-                    Box::new(crate::ui::motion::Restore::Cert(cert)),
+                    Box::new(mail_ui_kit::motion::Restore::Cert(cert)),
                 ));
             }
             said
@@ -276,10 +276,10 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
     let onpick = move |act: Act| match act {
         Act::Copy => {
             if let Ok(pem) = mail_client::smime::certs::export(&acted) {
-                super::super::hover::copy(&pem);
-                super::super::motion::tell(
+                mail_ui_kit::hover::copy(&pem);
+                mail_ui_kit::motion::tell(
                     "Certificate copied".to_owned(),
-                    super::super::motion::Follow::Nothing,
+                    mail_ui_kit::motion::Follow::Nothing,
                 );
             }
         }

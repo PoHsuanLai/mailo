@@ -108,7 +108,7 @@ mod searching_in_the_window {
             .last()
             .expect("the search panel's field");
         crate::ui::fixtures::type_into(&mut dom, field, typed);
-        tokio::time::advance(crate::ui::debounce::QUIET).await;
+        tokio::time::advance(mail_ui_kit::debounce::QUIET).await;
         // The list may already look like the answer before the search lands (the Inbox can hold
         // just the one conversation), so wait for the panel to show what was typed as well: the
         // whole state the tests go on to read, not the first part of it to arrive.
@@ -190,8 +190,8 @@ fn a_row_is_as_tall_as_the_lines_it_draws() {
 /// could not be run.
 #[test]
 fn the_search_shown_says_where_it_looked() {
-    use super::super::list_search::Scope;
     use super::{Said, searched};
+    use mail_ui_kit::list_search::Scope;
     let broken = regex::Regex::new(&String::from("("))
         .expect_err("an unclosed group")
         .to_string();

@@ -5,13 +5,13 @@
 //! place and "Notify for: VIPs only" all read it there. Pinned people are a Space's shortcuts and
 //! stay so; they are offered here, never made VIPs by being pinned.
 
-use crate::ui::press::on_primary;
-use crate::ui::space::Pinned;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::vip::{Mark, Vip, Vips};
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::space::Pinned;
 use mail_ui_model::copy;
 
 /// A person a row names: their name with their address, or the address alone.
@@ -50,14 +50,14 @@ fn set(
     mark: Mark,
     then: impl FnOnce(Result<(), String>) + 'static,
 ) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let (address, name) = (address.to_owned(), name.map(str::to_owned));
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
             client
                 .query()
                 .set_vip(&address, name.as_deref(), mark)
-                .map_err(crate::ui::remedy::told)
+                .map_err(mail_ui_kit::remedy::told)
         })
         .await
         .unwrap_or_else(|why| Err(why.to_string()));
@@ -81,9 +81,10 @@ fn set_with_dialog(
 #[component]
 pub(super) fn VipsPage() -> Element {
     // Read again whenever a VIP is marked or unmarked, here or in another window.
-    let _ =
-        crate::ui::live::moved_for(mail_client::Topics::CONTACTS | mail_client::Topics::SUMMARIES);
-    let client = crate::ui::live::client();
+    let _ = mail_ui_kit::live::moved_for(
+        mail_client::Topics::CONTACTS | mail_client::Topics::SUMMARIES,
+    );
+    let client = mail_ui_kit::live::client();
     let listed: Vec<Vip> = match client.query().listed_vips() {
         Ok(listed) => listed,
         Err(why) => {
@@ -92,7 +93,7 @@ pub(super) fn VipsPage() -> Element {
         }
     };
     let vips = Vips::new(listed.iter().map(|vip| vip.address.clone()));
-    let pins: Vec<Pinned> = try_consume_context::<crate::ui::space::Handle>()
+    let pins: Vec<Pinned> = try_consume_context::<mail_ui_kit::space::Handle>()
         .map(|handle| {
             handle
                 .spaces()
@@ -196,7 +197,7 @@ pub(super) fn VipsPage() -> Element {
             }
         }
         if let Some(why) = failed() {
-            crate::ui::common::Problem {
+            mail_ui_kit::common::Problem {
                 title: copy::titles::NOT_SAVED,
                 why,
                 onclose: move |()| {

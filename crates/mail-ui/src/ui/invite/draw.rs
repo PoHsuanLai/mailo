@@ -1,8 +1,5 @@
 //! The invitation card: what the event is, who is asked, and the three answers.
 
-use super::super::menu::{MenuKey, menu_key};
-use super::super::motion::{Follow, tell};
-use super::super::press::{available, on_primary};
 use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
@@ -19,6 +16,9 @@ use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_client::message::Looks;
 use mail_domain::{Attendance, BlobId, MessageId};
+use mail_ui_kit::menu::{MenuKey, menu_key};
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::press::{available, on_primary};
 use mail_ui_model::copy::{aria, controls, fields};
 use std::sync::Arc;
 
@@ -70,13 +70,13 @@ impl Disclosure {
 #[component]
 pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Element {
     let looks = crate::ui::reading::use_looks();
-    let hours = crate::ui::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     let mut known = use_signal({
         let looks = looks.clone();
         move || cached(&looks, message, body, hours)
     });
     let _look = use_resource(move || {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let looks = looks.clone();
         async move {
             if known.peek().is_some() {
@@ -195,7 +195,7 @@ pub(in crate::ui) fn InviteCard(
                             Button {
                                 label: change,
                                 onclick: on_primary(move || phase.set(Phase::Changing)),
-                                common: Common { aria_label: Some(change.to_owned()), data: crate::ui::sidebar::tagged("invite", "change").data, ..Common::default() },
+                                common: Common { aria_label: Some(change.to_owned()), data: mail_ui_kit::common::tagged("invite", "change").data, ..Common::default() },
                             }
                         },
                     }
@@ -268,7 +268,7 @@ pub(in crate::ui) fn InviteCard(
                             label: save,
                             availability: available(!working),
                             onclick: on_primary(move || save_file(message, title.clone(), phase)),
-                            common: Common { aria_label: Some(save.to_owned()), data: crate::ui::sidebar::tagged("invite", "save").data, ..Common::default() },
+                            common: Common { aria_label: Some(save.to_owned()), data: mail_ui_kit::common::tagged("invite", "save").data, ..Common::default() },
                         }
                     }
                 }
@@ -347,7 +347,7 @@ fn Noting(
                 Button {
         answers: Answers::Return,
         label: "Send".to_owned(),
-    common: Common { aria_label: Some("Send answer".to_owned()), data: crate::ui::sidebar::tagged("invite", "send").data, ..Common::default() },
+    common: Common { aria_label: Some("Send answer".to_owned()), data: mail_ui_kit::common::tagged("invite", "send").data, ..Common::default() },
         onclick: on_primary(move || on_send.call((attendance, note.clone()))),
     }
             }
@@ -368,8 +368,8 @@ fn give(
         return;
     }
     phase.set(Phase::Working);
-    let client = crate::ui::live::client();
-    let hours = crate::ui::clock::hours();
+    let client = mail_ui_kit::live::client();
+    let hours = mail_ui_kit::clock::hours();
     // Spawned from a click or a key, which is where a task is polled.
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
@@ -403,7 +403,7 @@ fn give(
 
 /// Write the event's `.ics` into the save directory on a blocking thread; the toast says where.
 fn save_file(message: MessageId, title: String, mut phase: Signal<Phase>) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let dir = super::super::files::save_dir();
     let saving = crate::ui::downloads::Saving::quick();
     spawn(async move {

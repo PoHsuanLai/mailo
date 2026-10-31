@@ -7,9 +7,9 @@
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
-use mail_ui::ui::keymap;
-use mail_ui::ui::space;
-use mail_ui::ui::view::Shortcut;
+use mail_ui_kit::keymap;
+use mail_ui_kit::space;
+use mail_ui_kit::view::Shortcut;
 use mail_ui_model::copy;
 
 use super::drive::{Drive, Key};

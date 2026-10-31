@@ -18,14 +18,14 @@ use dioxus::prelude::*;
 use mail_client::Client;
 use mail_domain::{Draft, Template, TemplateId};
 
-use super::super::menu::{MenuItem, MenuKey, Right, anchor_at, menu_key, palette_groups};
-use super::super::motion::{Follow, tell};
 use super::desk::{self, Desk};
 use super::float::{commit, query, slash_items};
 use super::life;
 use super::page::{Float, Page, PageKind, Phase, address};
-use crate::ui::view::Shell;
 use mail_editor::{Caret, Node, Op, Range, runs_text};
+use mail_ui_kit::menu::{MenuItem, MenuKey, Right, anchor_at, menu_key, palette_groups};
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::view::Shell;
 
 /// The ⋯ item that keeps the message as a template.
 pub(in crate::ui) const SAVE_KEY: &str = "template:save";
@@ -206,7 +206,7 @@ pub(in crate::ui) fn start_from(
 
 /// Picked from the page's list: the new draft opens as the page.
 fn start_here(mut page: Signal<Page>, mut shell: Signal<Shell>, key: &str) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let Some(id) = named(&every(&client), key) else {
         return;
     };
@@ -226,7 +226,7 @@ fn start_here(mut page: Signal<Page>, mut shell: Signal<Shell>, key: &str) {
 
 /// Delete from the page's list, and say so.
 fn forget_here(mut page: Signal<Page>, key: &str) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     match forget(&client, key) {
         Ok(said) => tell(said, Follow::Nothing),
         Err(why) => page.write().notice = Some(why),
@@ -240,7 +240,7 @@ fn forget_here(mut page: Signal<Page>, key: &str) {
 
 /// Enter or Save in the name field.
 fn save_here(mut page: Signal<Page>) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let saved = save_named(&client, &mut page.write(), Utc::now());
     match saved {
         Ok(said) => tell(said, Follow::Nothing),
@@ -254,7 +254,7 @@ pub(in crate::ui) fn key(page: Signal<Page>, shell: Signal<Shell>, name: &str) -
         return false;
     };
     let mut page = page;
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let rows = template_rows(&every(&client), "");
     let count = rows.len().max(1);
     match menu_key(name) {
@@ -338,7 +338,7 @@ pub(in crate::ui) fn TemplateFloat(
 #[component]
 fn TemplateList(page: Signal<Page>, shell: Signal<Shell>, active: usize) -> Element {
     let mut query = use_signal(String::new);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let rows = template_rows(&every(&client), &query());
     let remove = EventHandler::new(move |key: String| forget_here(page, &key));
     rsx! {

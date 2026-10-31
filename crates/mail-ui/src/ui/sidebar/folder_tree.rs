@@ -4,11 +4,11 @@
 //! Pure. What the store holds is gathered by `folder_act::load`; everything decided about it is
 //! decided here, where a table can check it.
 
-use crate::ui::view::Shell;
 use mail_domain::folder::delimiter_of;
 use mail_domain::{
     Folder, Holds, Label, LabelId, LabelOrigin, MailboxRef, ServerLabels, Subscription,
 };
+use mail_ui_kit::view::Shell;
 use porter_core::AccountId;
 
 /// Whether folders the user does not follow are drawn.
@@ -86,7 +86,7 @@ pub(in crate::ui) struct Tree {
 }
 
 /// The accounts the section is for: the pressed tile's, else the Space's.
-pub(in crate::ui) fn scope(shell: &Shell) -> crate::ui::space::Scope {
+pub(in crate::ui) fn scope(shell: &Shell) -> mail_ui_kit::space::Scope {
     shell.listed_scope()
 }
 

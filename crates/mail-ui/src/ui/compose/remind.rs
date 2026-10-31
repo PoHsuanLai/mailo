@@ -10,7 +10,6 @@ use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use mail_client::when::Clock;
 
-use super::super::menu::{MenuItem, MenuKey, Right, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};
 use super::page::{Float, Page};
 use super::props::ChoiceRow;
@@ -22,6 +21,7 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
+use mail_ui_kit::menu::{MenuItem, MenuKey, Right, menu_key};
 
 /// The Remind menu's key for "Off".
 pub(in crate::ui) const OFF_KEY: &str = "off";
@@ -186,8 +186,8 @@ pub(in crate::ui) fn RemindRow(page: Signal<Page>) -> Element {
     if remind == Remind::Off {
         return rsx! {};
     }
-    let now = super::super::clock::now();
-    let hours = super::super::clock::hours();
+    let now = mail_ui_kit::clock::now();
+    let hours = mail_ui_kit::clock::hours();
     let items = remind_items(remind, now, &chrono::Local, hours);
     let shown = remind.shown(now, &chrono::Local, hours);
     rsx! {
@@ -213,8 +213,8 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
     let Float::PickRemind(typed) = page.read().float.clone() else {
         return rsx! {};
     };
-    let now = super::super::clock::now();
-    let hours = super::super::clock::hours();
+    let now = mail_ui_kit::clock::now();
+    let hours = mail_ui_kit::clock::hours();
     let reading = mail_client::follow_up::due(&typed, now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
     let (validity, says) = match &reading {
@@ -236,7 +236,7 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
     };
     rsx! {
         Popover {
-            anchor: super::super::menu::anchor_at(anchor),
+            anchor: mail_ui_kit::menu::anchor_at(anchor),
             placement: Placement::new(Side::Bottom, Align::Start),
             gap: Px(4.0),
             arrow: Arrow::None,
@@ -247,7 +247,7 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
                     match menu_key(&event.key().to_string()) {
                         Some(MenuKey::Enter) => {
                             event.prevent_default();
-                            let now = super::super::clock::now();
+                            let now = mail_ui_kit::clock::now();
                             let _ = choose_remind(&mut page.write(), now, &chrono::Local, hours);
                         }
                         Some(MenuKey::Escape) => {

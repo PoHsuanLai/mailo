@@ -5,12 +5,13 @@
 //! takes a default one, and the reply's desk needs the Spaces that call makes.
 
 use super::compose::{self, Desk};
-use super::space::{Handle, Spaces};
-use super::today::Today;
-use super::view::Shell;
-use super::{actions, appearance::WindowDirs, frame, hover, motion};
+use super::frame;
 use dioxus::prelude::*;
 use ds::prelude::Keys;
+use mail_ui_kit::space::{Handle, Spaces};
+use mail_ui_kit::today::Today;
+use mail_ui_kit::view::Shell;
+use mail_ui_kit::{actions, appearance::WindowDirs, hover, motion};
 
 /// The handles the first hook makes, which the window's own keys and writes go through.
 #[derive(Clone, Copy)]
@@ -24,8 +25,8 @@ pub(super) struct WindowCore {
 pub(super) fn use_window_core() -> WindowCore {
     let keys = actions::use_registered();
     hover::use_hover();
-    motion::use_motion();
-    super::reading::selection::use_selections();
+    motion::use_motion_resending(super::compose::send_again);
+    mail_ui_kit::frame_selection::use_selections();
     WindowCore { keys }
 }
 

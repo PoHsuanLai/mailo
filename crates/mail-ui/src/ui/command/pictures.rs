@@ -2,10 +2,10 @@
 //! back, and beside a label menu for the stylesheet test.
 
 use super::*;
-use crate::ui::view::Shell;
 use chrono::Utc;
 use ds::prelude::*;
 use mail_domain::Filter;
+use mail_ui_kit::view::Shell;
 use std::cell::Cell;
 
 thread_local! {
@@ -30,17 +30,17 @@ pub(in crate::ui) fn held() -> Held {
 #[component]
 pub(in crate::ui) fn BarAlone(typed: String) -> Element {
     // The window's keymap with mailo's actions in it, as `App` makes it: ⌘K is one of them.
-    let _keys = crate::ui::actions::use_registered();
+    let _keys = mail_ui_kit::actions::use_registered();
     let shell = use_signal(|| Shell {
         search: typed.clone(),
-        bar: Bar::Open(crate::ui::view::BarOpen::over(String::new())),
+        bar: Bar::Open(mail_ui_kit::view::BarOpen::over(String::new())),
         ..Shell::default()
     });
     let side_hidden = use_signal(|| false);
     HELD.with(|slot| slot.set(Some(Held { shell, side_hidden })));
     let pages = use_signal(|| 1u32);
     let in_a_field = use_signal(|| false);
-    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
+    let spaces = use_signal(|| mail_ui_kit::space::first_run(&[]));
     rsx! {
         Ds {
             appearance: Appearance::default(),
@@ -55,7 +55,7 @@ pub(in crate::ui) fn BarAlone(typed: String) -> Element {
 /// classes.
 #[component]
 pub(in crate::ui) fn OpenMenus() -> Element {
-    let client = crate::ui::live::use_client();
+    let client = mail_ui_kit::live::use_client();
     let known = client.query().known_labels();
     let shell = use_signal(|| Shell {
         labels: known,

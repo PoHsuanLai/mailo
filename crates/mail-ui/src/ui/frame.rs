@@ -2,10 +2,10 @@
 //!
 //! How a Space is painted is `paint.rs`.
 
-use crate::ui::appearance::WindowDirs;
-use crate::ui::space::{self, Spaces};
-use crate::ui::today::{self, Today};
 use dioxus::prelude::*;
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::space::{self, Spaces};
+use mail_ui_kit::today::{self, Today};
 
 /// What the first render needs, and nothing it has to ask the disk for again.
 #[derive(Clone)]
@@ -22,13 +22,13 @@ pub(super) struct Boot {
 /// handed no directories takes the Spaces it was handed, if any (a test's), else a first run.
 pub(super) fn load_boot() -> Boot {
     let dirs = try_consume_dirs();
-    let client = crate::ui::live::client();
-    let ids = super::data::accounts(&client);
+    let client = mail_ui_kit::live::client();
+    let ids = mail_ui_kit::data::accounts(&client);
     // What mailo wrote before quire, read only: the window-wide theme a Space without one of its
     // own starts from.
     let legacy = dirs
         .as_ref()
-        .map(|dirs| crate::ui::appearance::legacy(&dirs.config))
+        .map(|dirs| mail_ui_kit::appearance::legacy(&dirs.config))
         .unwrap_or_default();
     let spaces = match (&dirs, dioxus::prelude::try_consume_context::<Spaces>()) {
         (None, Some(handed)) => handed,
@@ -59,7 +59,7 @@ pub(super) fn keep(spaces: &Spaces) {
         && space::save(Some(&dirs), spaces).is_ok()
     {
         // The other windows wear the Space too, and read the file again.
-        crate::ui::configured::told_configuration();
+        mail_ui_kit::configured::told_configuration();
     }
 }
 
@@ -71,9 +71,9 @@ pub(super) fn keep(spaces: &Spaces) {
 /// window's Keyboard page changed it or another's did, is handed to `keys` at once, so a
 /// rebinding or a reset applies without reopening anything.
 pub(super) fn use_followed_configuration(
-    mut shell: Signal<crate::ui::view::Shell>,
+    mut shell: Signal<mail_ui_kit::view::Shell>,
     mut spaces: Signal<Spaces>,
-    handle: Option<crate::ui::space::Handle>,
+    handle: Option<mail_ui_kit::space::Handle>,
     keys: ds::prelude::Keys,
 ) {
     let mut applied = use_hook(|| CopyValue::new(shell.peek().keymap.overrides()));
@@ -85,14 +85,14 @@ pub(super) fn use_followed_configuration(
         }
     });
     let configured = use_signal(|| 0u64);
-    crate::ui::configured::use_shared_configuration(configured);
+    mail_ui_kit::configured::use_shared_configuration(configured);
     use_effect(move || {
         let _ = configured();
-        crate::ui::prefs::reread();
+        mail_ui_kit::prefs::reread();
         let Some(dirs) = try_consume_dirs() else {
             return;
         };
-        let keymap = crate::ui::keymap::load(&dirs.config);
+        let keymap = mail_ui_kit::keymap::load(&dirs.config);
         if shell.peek().keymap != keymap {
             shell.write().keymap = keymap;
         }

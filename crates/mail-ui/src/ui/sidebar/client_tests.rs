@@ -3,11 +3,11 @@
 
 use super::super::app::App;
 use crate::ui::fixtures::empty;
-use crate::ui::space::{Mail, built};
 use dioxus::prelude::*;
 use ds::prelude::SpaceLook;
 use mail_domain::{LabelId, LabelOrigin};
 use mail_store::testing::{seed_account, seed_label};
+use mail_ui_kit::space::{Mail, built};
 use porter_core::AccountId;
 use std::time::{Duration, Instant};
 

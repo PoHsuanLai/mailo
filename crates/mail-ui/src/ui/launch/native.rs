@@ -8,12 +8,12 @@
 //! runs no script, so there is no keep-focus script, no "nothing mounted" note and no debug probe.
 
 use super::{Opening, Shell, ShellRoot};
-use crate::ui::appearance::WindowDirs;
-use crate::ui::original::Original;
-use crate::ui::space::Spaces;
-use crate::ui::view::Appearance;
 use dioxus::prelude::*;
 use ds_blitz::{AppConfig, AppId, RootContexts};
+use mail_ui_kit::appearance::WindowDirs;
+use mail_ui_kit::original::Original;
+use mail_ui_kit::space::Spaces;
+use mail_ui_kit::view::Appearance;
 
 /// The main window's title, which the system's window lists show.
 const TITLE: &str = "mailo";
@@ -47,7 +47,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // Where the settings are, for what the quit removes.
     let quit_root = dirs
         .as_ref()
-        .and_then(crate::ui::prefs::root_of)
+        .and_then(mail_ui_kit::prefs::root_of)
         .or_else(mail_ui_model::settings::person_root);
     // Whether they are on is asked as each is said (`follow_up::speaking`), so Settings' switch
     // takes effect without a restart.
@@ -57,13 +57,13 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         let desktop = mail_os::desktop::connect_in_window();
         crate::ui::follow_up::Notices(std::sync::Arc::new(mail_ui_model::settings::Notices::new(
             Box::new(move |notification, sound| desktop.show_with(notification, sound)),
-            crate::ui::prefs::root_of(dirs),
+            mail_ui_kit::prefs::root_of(dirs),
         )))
     });
     // And the login item's switch, read as the window opens.
     let while_quit = dirs
         .as_ref()
-        .and_then(crate::ui::prefs::root_of)
+        .and_then(mail_ui_kit::prefs::root_of)
         .map(|root| mail_ui_model::settings::load(&root).sync.while_quit);
     // The one client every window reads mail through, reaching the servers as the program does.
     let super::Program {
@@ -85,7 +85,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // the running windows through `Keys::set_overrides` (`frame::use_followed_configuration`).
     let chosen = dirs
         .as_ref()
-        .map(|dirs| crate::ui::keymap::load(&dirs.config).overrides());
+        .map(|dirs| mail_ui_kit::keymap::load(&dirs.config).overrides());
     // How the app opens its main window again, from a thread that is not the window's.
     let app = ds_blitz::AppHandle::new();
     let stays = resident.stays;
@@ -118,7 +118,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_context(icons)
         .with_context(found)
         // The count of the configuration files a window writes (key bindings, Spaces).
-        .with_context(crate::ui::configured::Configured::default())
+        .with_context(mail_ui_kit::configured::Configured::default())
         // And the page the Settings window shows next, which ⌘K and the composer turn it to.
         .with_context(crate::ui::settings_window::SettingsAsked::default())
         // And who needs to sign in again, which only the first window knows and Settings shows.

@@ -15,9 +15,9 @@ use ds::root::common::Common;
 use mail_client::Client;
 
 use super::book;
-use crate::ui::menu::{MenuKey, anchor_at, menu_key};
-use crate::ui::motion::{Follow, tell};
-use crate::ui::press::on_primary;
+use mail_ui_kit::menu::{MenuKey, anchor_at, menu_key};
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::copy;
 
 /// The name the field starts with: the book's, else the one the mail gave.
@@ -33,7 +33,7 @@ pub(in crate::ui) fn starting_name(client: &Client, address: &str, in_mail: &str
 
 /// Keep `typed` as `address`'s name, saying only a failure.
 fn keep(address: &str, typed: &str, on_close: EventHandler<()>) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     if let Err(why) = book::name(&client, address, typed) {
         tell(why, Follow::Nothing);
     }
@@ -51,7 +51,7 @@ pub(super) fn ContactEditor(
     let mut typed = use_signal({
         let address = address.clone();
         move || {
-            let client = crate::ui::live::client();
+            let client = mail_ui_kit::live::client();
             starting_name(&client, &address, &in_mail)
         }
     });
@@ -113,20 +113,20 @@ const SHOW: &str = "show-card";
 
 /// The name menu's second row: Show Contact Card when a card lists the sender, else Add to
 /// Contacts.
-fn card_row(address: &str) -> crate::ui::menu::MenuItem {
+fn card_row(address: &str) -> mail_ui_kit::menu::MenuItem {
     // A window with no client (a lone component in a test) knows no cards.
-    match crate::ui::live::try_client().and_then(|client| book::card_of(&client, address)) {
+    match mail_ui_kit::live::try_client().and_then(|client| book::card_of(&client, address)) {
         Some(_) => {
-            crate::ui::menu::MenuItem::icon(SHOW, Icon::Group, copy::menus::SHOW_CONTACT_CARD)
+            mail_ui_kit::menu::MenuItem::icon(SHOW, Icon::Group, copy::menus::SHOW_CONTACT_CARD)
         }
-        None => crate::ui::menu::MenuItem::icon(ADD, Icon::Plus, copy::menus::ADD_TO_CONTACTS),
+        None => mail_ui_kit::menu::MenuItem::icon(ADD, Icon::Plus, copy::menus::ADD_TO_CONTACTS),
     }
 }
 
 /// Add to Contacts, or Show Contact Card: the sender's card, made if there was none, opened in
 /// Settings › Contacts. A new card is said in a toast.
 fn show_card(address: &str, in_mail: &str) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     match book::add_sender(&client, address, in_mail) {
         Ok((card, said)) => {
             if let Some(said) = said {
@@ -150,7 +150,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
     let marking = try_use_context::<crate::ui::vip::Marking>();
     let vips = marking.map(|marking| marking.shell.read().vips.clone());
     let vip = vips.as_ref().is_some_and(|vips| vips.includes(&address));
-    let mut items = vec![crate::ui::menu::MenuItem::icon(
+    let mut items = vec![mail_ui_kit::menu::MenuItem::icon(
         EDIT,
         Icon::Pen,
         copy::menus::EDIT_CONTACT,
@@ -159,7 +159,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
     let markable =
         marking.is_some_and(|marking| crate::ui::vip::markable(&marking.shell.read(), &address));
     if let (Some(vips), true) = (&vips, markable) {
-        items.push(crate::ui::menu::MenuItem::icon(
+        items.push(mail_ui_kit::menu::MenuItem::icon(
             VIP,
             crate::ui::vip::GLYPH,
             crate::ui::vip::menu_words(vips, &address),
@@ -184,7 +184,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
                 asked.set(Asked::Menu(crate::ui::row::point_rect(event.client_coordinates())));
             },
             onmounted: move |event: MountedEvent| at.set(Some(MountedRef(event.data()))),
-            Label { text: shown, style: LabelStyle::Headline, common: crate::ui::common::classed("truncate") }
+            Label { text: shown, style: LabelStyle::Headline, common: mail_ui_kit::common::classed("truncate") }
         }
         if vip {
             crate::ui::vip::VipMark {}
@@ -192,7 +192,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
         match asked() {
             Asked::Resting => rsx! {},
             Asked::Menu(placed) => rsx! {
-                crate::ui::menu::Floating {
+                mail_ui_kit::menu::Floating {
                     anchor: None,
                     placed: Some(placed),
                     title: String::new(),

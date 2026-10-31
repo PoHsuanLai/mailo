@@ -5,10 +5,10 @@ use super::{
 };
 use crate::ui::app::App;
 use crate::ui::fixtures::{dispatching, realistic, rebuild_into, settle_quiet, thread_like};
-use crate::ui::view::Shell;
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::{SqliteStore, Store as _};
 use mail_domain::ThreadId;
+use mail_ui_kit::view::Shell;
 use std::sync::Arc;
 
 fn args(words: &[&str]) -> Vec<String> {
@@ -232,17 +232,17 @@ fn a_window_started_on_a_thread_opens_in_the_space_that_holds_its_account() {
     let Ok(account) = store.thread(thread).map(|thread| thread.summary.account) else {
         panic!("the fixture's conversation");
     };
-    let spaces = crate::ui::space::built(
+    let spaces = mail_ui_kit::space::built(
         vec![
             (
                 "Elsewhere".to_owned(),
                 ds::prelude::SpaceLook::default(),
-                crate::ui::space::Mail::of(Vec::new()),
+                mail_ui_kit::space::Mail::of(Vec::new()),
             ),
             (
                 "Supervision".to_owned(),
                 ds::prelude::SpaceLook::default(),
-                crate::ui::space::Mail::of(vec![account]),
+                mail_ui_kit::space::Mail::of(vec![account]),
             ),
         ],
         0,

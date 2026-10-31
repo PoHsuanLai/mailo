@@ -1,24 +1,16 @@
-# Visible string literals still written under crates/mail-ui/src/ui and in crates/mail-ui-model/src
+# Visible string literals still written under crates/mail-ui/src/ui, crates/mail-ui-kit/src and in crates/mail-ui-model/src
 # outside its copy/, per file, as scripts/copy-literals.py counts them. A ratchet (scripts/check-copy.sh): it fails when a
 # count rises or an unlisted file gains one, and when a count falls until this file says so.
 # A new word goes in crates/mail-ui-model/src/copy/. Format: "<file> <count>".
 crates/mail-ui/src/ui/app.rs 3
-crates/mail-ui/src/ui/bin.rs 11
 crates/mail-ui/src/ui/brand.rs 1
-crates/mail-ui/src/ui/data.rs 1
 crates/mail-ui/src/ui/destroy.rs 1
 crates/mail-ui/src/ui/keyboard.rs 5
-crates/mail-ui/src/ui/keymap.rs 17
 crates/mail-ui/src/ui/no_account.rs 3
-crates/mail-ui/src/ui/ops.rs 2
 crates/mail-ui/src/ui/reauth.rs 5
-crates/mail-ui/src/ui/remedy.rs 16
 crates/mail-ui/src/ui/row.rs 2
-crates/mail-ui/src/ui/saved.rs 14
 crates/mail-ui/src/ui/server_search.rs 10
 crates/mail-ui/src/ui/space_menu.rs 1
-crates/mail-ui/src/ui/text.rs 1
-crates/mail-ui/src/ui/view.rs 8
 crates/mail-ui/src/ui/view_groups.rs 17
 crates/mail-ui/src/ui/views.rs 14
 crates/mail-ui/src/ui/add_account/direct.rs 5
@@ -61,7 +53,6 @@ crates/mail-ui/src/ui/files/work.rs 14
 crates/mail-ui/src/ui/invite/card.rs 25
 crates/mail-ui/src/ui/invite/draw.rs 24
 crates/mail-ui/src/ui/menus/mod.rs 9
-crates/mail-ui/src/ui/motion/mod.rs 1
 crates/mail-ui/src/ui/pgp/certs.rs 22
 crates/mail-ui/src/ui/pgp/key_row.rs 24
 crates/mail-ui/src/ui/pgp/keys.rs 11
@@ -86,6 +77,14 @@ crates/mail-ui/src/ui/unsubscribe/head.rs 5
 crates/mail-ui/src/ui/unsubscribe/mod.rs 12
 crates/mail-ui/src/ui/window/mod.rs 1
 crates/mail-ui/src/ui/window/note.rs 3
+crates/mail-ui-kit/src/bin.rs 11
+crates/mail-ui-kit/src/data.rs 1
+crates/mail-ui-kit/src/keymap.rs 17
+crates/mail-ui-kit/src/ops.rs 2
+crates/mail-ui-kit/src/remedy.rs 16
+crates/mail-ui-kit/src/saved.rs 14
+crates/mail-ui-kit/src/text.rs 1
+crates/mail-ui-kit/src/view.rs 8
 crates/mail-ui-model/src/add_account/host.rs 1
 crates/mail-ui-model/src/add_account/provider.rs 2
 crates/mail-ui-model/src/fetching/status.rs 20

@@ -14,11 +14,6 @@
 //! and elsewhere the label a move into it files under, named by its path — the same one a rule
 //! finds or makes (`mail_client::rules`), so a folder is one label whichever way mail got there.
 
-use super::menu::{MenuItem, anchor_for, narrowed, palette_groups};
-use super::motion::drag::Drag;
-use super::motion::{act_all, motion};
-use super::picks::with_selection;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::host::measure::MountedRef;
@@ -26,6 +21,11 @@ use ds::prelude::*;
 use mail_client::Client;
 use mail_domain::Label;
 use mail_domain::*;
+use mail_ui_kit::menu::{MenuItem, anchor_for, narrowed, palette_groups};
+use mail_ui_kit::motion::drag::Drag;
+use mail_ui_kit::motion::with_selection;
+use mail_ui_kit::motion::{act_all, motion};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -175,7 +175,7 @@ pub(in crate::ui) fn drop_on(shell: Signal<Shell>, folder: &MailboxRef) -> bool 
         return false;
     };
     state.drag.set(Drag::Idle);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     file_all_into(&client, shell, &with_selection(shell, thread), folder);
     true
 }
@@ -204,7 +204,7 @@ pub(in crate::ui) fn MoveMenu(
     gesture: Gesture,
     on_close: EventHandler<()>,
 ) -> Element {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let account = account_of(&client, thread);
     let found = account
         .clone()
@@ -244,7 +244,7 @@ pub(in crate::ui) fn MoveMenu(
             oninput: move |text: String| query.set(text),
             onpick: move |path: String| {
                 let Some(account) = account.clone() else { return };
-                let client = crate::ui::live::client();
+                let client = mail_ui_kit::live::client();
                 let folder = MailboxRef { account, path };
                 on_close.call(());
                 // The whole selection when this row is picked, as one gesture.

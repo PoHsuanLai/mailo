@@ -10,7 +10,6 @@ use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, menu_names, rebuild_into, seeded,
 };
 use crate::ui::reading::Reader;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use ds::prelude::*;
@@ -19,6 +18,7 @@ use mail_core::message::{Looks, Read};
 use mail_core::unsubscribe::{Found, Outcome};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy::menus::UNSUBSCRIBE;
 use std::sync::Arc;
 use std::time::Duration;

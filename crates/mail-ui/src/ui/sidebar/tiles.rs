@@ -10,13 +10,9 @@
 
 use super::join::{self, Plus};
 use super::tile_menu::TileMenu;
-use crate::ui::data::account_rows;
 use crate::ui::fetching::Fetching;
-use crate::ui::menu::Floating;
 use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
 use crate::ui::reauth::Reauth;
-use crate::ui::space::{Handle, Space};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::app::pin_tile::{PinFace, PinStatus};
 use ds::components::app::pin_tiles::{PinAdd, PinItem, PinMenu, PinTiles};
@@ -28,6 +24,10 @@ use mail_client::profile::ProfileId;
 use mail_client::provider::{Provider, provider};
 use mail_client::query::{Account, Counted, Counts};
 use mail_domain::{Filter, ReadState};
+use mail_ui_kit::data::account_rows;
+use mail_ui_kit::menu::Floating;
+use mail_ui_kit::space::{Handle, Space};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 use mail_ui_model::fetching::status::{StatusLine, Tone};
 use porter_core::AccountId;
@@ -67,7 +67,7 @@ pub(super) fn tile_rows(
         .filter_map(|id| accounts.iter().find(|account| account.id == *id))
         .map(|account| TileRow {
             id: account.id.clone(),
-            name: crate::ui::data::named(account),
+            name: mail_ui_kit::data::named(account),
             unread: counted
                 .and_then(|counted| Counts::of(counted, &tile_filter(account.id.clone())))
                 .unwrap_or(0),
@@ -145,7 +145,7 @@ pub(super) fn AccountTiles(
     let several = rows.len() > 1;
     let marks = shell.read().appearance.marks;
     let fetching = try_use_context::<Fetching>();
-    let now = crate::ui::clock::now();
+    let now = mail_ui_kit::clock::now();
     let statuses: Vec<PinStatus> = rows
         .iter()
         .map(|row| {
@@ -171,7 +171,7 @@ pub(super) fn AccountTiles(
         };
         let face = PinFace::Account {
             initial: super::panes::initial(&row.name),
-            colour: super::panes::hex_colour(&colour_of(&row.name)),
+            colour: mail_ui_kit::common::hex_colour(&colour_of(&row.name)),
             provider,
             address: Some(row.name.clone()),
         };
@@ -198,7 +198,7 @@ pub(super) fn AccountTiles(
                 label: copy::aria::ADD_ACCOUNT.to_owned(),
                 hint: Some(copy::tooltips::ADD_ACCOUNT.to_owned()),
                 onadd: EventHandler::new(move |()| {
-                    let client = crate::ui::live::client();
+                    let client = mail_ui_kit::live::client();
                     let all: Vec<(AccountId, String)> = account_rows(&client)
                         .into_iter()
                         .map(|row| (row.id.clone(), row.shown()))
@@ -356,7 +356,7 @@ mod tests {
     /// Space no longer shows narrows nothing.
     #[test]
     fn a_pressed_tile_wins_over_the_space_only_while_the_space_shows_it() {
-        use crate::ui::space::Scope;
+        use mail_ui_kit::space::Scope;
         use porter_core::AccountId;
         let account = |n: u128| -> AccountId {
             mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(n))
@@ -369,10 +369,10 @@ mod tests {
             (Some(account(3)), space.clone()),
         ];
         for (pressed, want) in cases {
-            let shell = crate::ui::view::Shell {
+            let shell = mail_ui_kit::view::Shell {
                 scope: space.clone(),
                 account: pressed.clone(),
-                ..crate::ui::view::Shell::default()
+                ..mail_ui_kit::view::Shell::default()
             };
             assert_eq!(shell.listed_scope(), want, "{pressed:?}");
         }

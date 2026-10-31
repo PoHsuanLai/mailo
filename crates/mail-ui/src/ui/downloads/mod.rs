@@ -22,10 +22,10 @@ pub(in crate::ui) use self::open::open as open_file;
 pub(in crate::ui) use self::panel::DownloadsButton;
 
 use self::log::{Entry, Log};
-use crate::ui::appearance::WindowDirs;
 use dioxus::prelude::*;
 use mail_client::Client;
 use mail_domain::MessageId;
+use mail_ui_kit::appearance::WindowDirs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

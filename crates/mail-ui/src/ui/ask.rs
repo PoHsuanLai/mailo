@@ -14,13 +14,13 @@
 //! command line is the CLI's, and [`parse_args`] says so by answering `None`.
 
 use crate::handoff::ActivationToken;
-use crate::ui::motion::{Follow, tell};
-use crate::ui::space::{Handle, SpaceId, Spaces};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_client::Client;
 use mail_domain::{DraftId, ThreadId};
 use mail_mime::MailtoUri;
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::space::{Handle, SpaceId, Spaces};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy::errors;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -72,7 +72,7 @@ impl Window {
     /// when the window is already in a Space that shows the account, when none does, or while a
     /// Space's part is open (quire refuses one then); it is then shown in the Space on screen.
     pub fn arrive(self, ask: &dyn Ask) {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let (chosen, current) = {
             let list = self.spaces.spaces();
             let list = list.peek();
@@ -226,7 +226,7 @@ impl Ask for Thread {
 
     fn run(&self, _window: Window) {
         // Logged: the one trace of what a click did to a window with no other way to ask it.
-        log::info!(target: crate::ui::TRACE, "opened conversation {}", self.0);
+        log::info!(target: mail_ui_kit::TRACE, "opened conversation {}", self.0);
     }
 }
 
@@ -268,14 +268,14 @@ impl Ask for Reply {
     /// From the account the conversation is in, with its newest message answered, as the Reply
     /// key does.
     fn run(&self, window: Window) {
-        log::info!(target: crate::ui::TRACE, "asked for a reply to {}", self.0);
-        let client = crate::ui::live::client();
-        let writes = crate::ui::ops::Writes::On(
+        log::info!(target: mail_ui_kit::TRACE, "asked for a reply to {}", self.0);
+        let client = mail_ui_kit::live::client();
+        let writes = mail_ui_kit::ops::Writes::On(
             self.0,
-            crate::ui::ops::Composes::Reply(mail_domain::ReplyScope::Sender),
+            mail_ui_kit::ops::Composes::Reply(mail_domain::ReplyScope::Sender),
         );
         // `open_composer` says why not, in the log, itself.
-        let _ = crate::ui::ops::open_composer(&client, window.shell, writes);
+        let _ = mail_ui_kit::ops::open_composer(&client, window.shell, writes);
     }
 }
 
@@ -319,20 +319,20 @@ impl Ask for Archive {
         false
     }
 
-    /// As the window's own Archive does ([`crate::ui::motion::act_kind`]): the row leaves, a
+    /// As the window's own Archive does ([`mail_ui_kit::motion::act_kind`]): the row leaves, a
     /// toast says so and offers Undo, and ⌘Z takes it back. A conversation the client does not
     /// have is said in the same toast.
     fn run(&self, window: Window) {
-        log::info!(target: crate::ui::TRACE, "asked to archive {}", self.0);
-        let client = crate::ui::live::client();
+        log::info!(target: mail_ui_kit::TRACE, "asked to archive {}", self.0);
+        let client = mail_ui_kit::live::client();
         if client.stored().thread(self.0).is_err() {
-            crate::ui::motion::tell(
+            mail_ui_kit::motion::tell(
                 mail_ui_model::copy::errors::NOT_ARCHIVED.to_owned(),
-                crate::ui::motion::Follow::Nothing,
+                mail_ui_kit::motion::Follow::Nothing,
             );
             return;
         }
-        crate::ui::motion::act_kind(&client, window.shell, self.0, mail_domain::OpKind::Archive);
+        mail_ui_kit::motion::act_kind(&client, window.shell, self.0, mail_domain::OpKind::Archive);
     }
 }
 
@@ -370,7 +370,7 @@ impl Ask for Inbox {
     }
 
     fn run(&self, _window: Window) {
-        log::info!(target: crate::ui::TRACE, "opened the inbox of {}", self.0);
+        log::info!(target: mail_ui_kit::TRACE, "opened the inbox of {}", self.0);
     }
 }
 
@@ -443,7 +443,7 @@ impl Ask for Mailto {
 
     /// The draft is saved first, then the composer opens on it.
     fn run(&self, window: Window) {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         match self.draft(&client, chrono::Utc::now()) {
             Ok(id) => {
                 let mut shell = window.shell;
@@ -499,7 +499,7 @@ fn open_thread(shell: &mut Shell, thread: ThreadId) {
 fn select_inbox(shell: &mut Shell) {
     if let Some(inbox) = shell.places.iter().position(|place| {
         place.source
-            == crate::ui::view::Source::Mail(mail_client::mailbox_filter::for_role(
+            == mail_ui_kit::view::Source::Mail(mail_client::mailbox_filter::for_role(
                 mail_domain::MailboxRole::Inbox,
             ))
     }) {
@@ -508,11 +508,11 @@ fn select_inbox(shell: &mut Shell) {
 }
 
 /// The Space among `spaces` to show `ask` in: the one on screen when it shows the account, else
-/// the first in order that does ([`crate::ui::space::holding`]). `None` keeps the window in the
+/// the first in order that does ([`mail_ui_kit::space::holding`]). `None` keeps the window in the
 /// Space it is in, which is what happens when no Space shows the account: the conversation still
 /// opens in the reader there, over that Space's Inbox, whose list does not have its row.
 pub(in crate::ui) fn space_for(spaces: &Spaces, client: &Client, ask: &dyn Ask) -> Option<SpaceId> {
-    crate::ui::space::holding(spaces, &ask.account(client)?)
+    mail_ui_kit::space::holding(spaces, &ask.account(client)?)
 }
 
 #[cfg(test)]

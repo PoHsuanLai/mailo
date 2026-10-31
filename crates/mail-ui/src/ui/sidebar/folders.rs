@@ -5,11 +5,9 @@
 //! folder is named in a row of its own under the folder it goes in; a rename is written in the
 //! name's own place.
 
-use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};
 use super::folder_row::FolderRow;
 use super::folder_tree::{Section, Show};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::row::Outline;
@@ -17,6 +15,8 @@ use ds::components::lists::section_header::HeaderAction;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::id::account_id_from_uuid;
+use mail_ui_kit::menu::{Floating, MenuItem};
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -167,7 +167,7 @@ pub(super) fn FolderList(
                     outline: Outline::None,
                     // A handle for the tests and the automation, never shown: the row's title
                     // says what it does.
-                    common: super::tagged("toggle", "folders"),
+                    common: mail_ui_kit::common::tagged("toggle", "folders"),
                     onclick: move |_| {
                         let mut show = show;
                         show.set(if show() == Show::All { Show::Followed } else { Show::All });

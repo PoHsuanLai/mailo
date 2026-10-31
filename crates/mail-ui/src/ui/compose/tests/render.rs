@@ -99,7 +99,7 @@ pub(super) fn window_with(
 
 /// The Work Space's accounts have no identity rows; `account add` writes one for each.
 pub(super) fn with_identities(built: &crate::ui::fixtures::Work) {
-    for row in crate::ui::data::account_rows(&crate::ui::fixtures::client(&built.store)) {
+    for row in mail_ui_kit::data::account_rows(&crate::ui::fixtures::client(&built.store)) {
         let (account, address) = (row.id, row.address);
         mail_store::testing::seed_identity_for(
             &built.store,

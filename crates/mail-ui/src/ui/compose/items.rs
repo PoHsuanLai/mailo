@@ -1,11 +1,11 @@
 //! The rows of the page's menus: `/`, Turn into, `@`, `:`, people, and the object menu. Each is a
-//! [`MenuItem`] for the one shared [`super::super::menu::Menu`].
+//! [`MenuItem`] for the one shared [`mail_ui_kit::menu::Menu`].
 
-use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
 use ds::prelude::*;
 use mail_client::search::match_list;
 use mail_editor::{Action, Item, ParaKind, Person, filter, turn_into};
+use mail_ui_kit::menu::{MenuItem, Right, Tile};
 
 fn tile(item: &Item) -> Tile {
     match item.action {

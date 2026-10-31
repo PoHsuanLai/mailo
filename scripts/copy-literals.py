@@ -1,14 +1,15 @@
 """Count the visible string literals in the window's code outside copy/.
 
 All the words the window shows live in crates/mail-ui-model/src/copy/, by kind. This finds the
-string literals that still say something to a person elsewhere under crates/mail-ui/src/ui and
+string literals that still say something to a person elsewhere under crates/mail-ui/src/ui,
+crates/mail-ui-kit/src and
 in the model's modules that word the window (not its settings files), so
 scripts/check-copy.sh can hold their number to a ratchet (scripts/copy-literals.txt).
 
 What is a visible literal is a heuristic, kept simple and deterministic:
 
 - Not counted at all: comments, byte strings, the copy/ directory itself, test code (files named tests.rs or
-  *_tests.rs, anything under a tests/ or fixtures/ directory, a file a `#[cfg(test)] mod x;`
+  *_tests.rs, anything under a tests/, fixtures/ or kit_tests/ directory, a file a `#[cfg(test)] mod x;`
   declares, and the item that follows any `#[cfg(test)]`).
 - Not visible by where it stands: inside an `impl Debug for` block, inside an attribute
   (`#[path = "..."]`), inside a log, panic or
@@ -37,11 +38,13 @@ import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 UI = os.path.join("crates", "mail-ui", "src", "ui")
+# What every part of the window is drawn from (`mail-ui-kit`): walked as the window is.
+KIT = os.path.join("crates", "mail-ui-kit", "src")
 MODEL = os.path.join("crates", "mail-ui-model", "src")
 COPY = os.path.join(MODEL, "copy")
 # What is walked: the window's code, and the model beside it. The model's settings files are
 # schema and file names, not the window's words, and its `damage` is the command line's too.
-ROOTS = [UI, MODEL]
+ROOTS = [UI, KIT, MODEL]
 LEFT_OUT = [COPY, os.path.join(MODEL, "settings"), os.path.join(MODEL, "damage")]
 
 # Calls whose string arguments are not shown in the window.
@@ -286,7 +289,7 @@ def rust_files_under(root, include_tests):
         rel = os.path.relpath(base, ROOT)
         dirs[:] = sorted(
             d for d in dirs
-            if include_tests or d not in ("tests", "fixtures")
+            if include_tests or d not in ("tests", "fixtures", "kit_tests")
         )
         if any(rel == gone or rel.startswith(gone + os.sep) for gone in LEFT_OUT):
             continue

@@ -10,7 +10,7 @@ use mail_core::query;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_ui::ui::view;
+use mail_ui_kit::view;
 
 fn taipei() -> chrono::FixedOffset {
     chrono::FixedOffset::east_opt(8 * 3600).unwrap()

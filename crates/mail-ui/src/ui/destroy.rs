@@ -1,15 +1,11 @@
 //! Delete Forever and Empty Trash in the window: the alert that asks, and what opens it.
 //!
-//! Empty Trash is offered while Trash or Spam is the place shown (`crate::ui::bin`); Delete
+//! Empty Trash is offered while Trash or Spam is the place shown (`mail_ui_kit::bin`); Delete
 //! Forever wherever a conversation already in one of them is. Every way in (a row's menu, the
 //! selection bar, the list bar's Empty button, ⌘K) opens the same alert, which names how many
 //! messages go and says it cannot be undone; only its button deletes. Nothing here is on the undo
 //! stack, and the toast carries no Undo.
 
-use super::motion::destroy_all;
-use super::press::on_primary;
-use crate::ui::bin::{Bin, Destroying, Reach, bin_shown, doomed, offered, words};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
@@ -18,6 +14,10 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
 use mail_domain::*;
+use mail_ui_kit::bin::{Bin, Destroying, Reach, bin_shown, doomed, offered, words};
+use mail_ui_kit::motion::destroy_all;
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// How many conversations one page of the Empty count reads.
@@ -118,7 +118,7 @@ fn counted(client: &Client, bin: Bin, reach: Reach, threads: Vec<ThreadId>) -> D
 /// Close the alert, deleting nothing, and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().destroying = None;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 /// The alert's own button: delete what it named, then close.
@@ -127,7 +127,7 @@ fn confirm(shell: Signal<Shell>) {
         return;
     };
     close(shell);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     destroy_all(&client, shell, &asked.threads);
 }
 
@@ -185,7 +185,7 @@ pub(in crate::ui) fn EmptyButton(shell: Signal<Shell>) -> Element {
                 ..Common::default()
             },
             onclick: on_primary(move || {
-                let client = crate::ui::live::client();
+                let client = mail_ui_kit::live::client();
                 ask_everything(&client, shell);
             }),
         }

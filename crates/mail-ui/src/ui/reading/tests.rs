@@ -3,11 +3,11 @@ use crate::ui::fixtures::{
     click, dispatching, held_and_remote, reader_markup, realistic, rebuild_into, seeded,
     thread_like,
 };
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_kit::view::Shell;
 use std::sync::Arc;
 
 #[test]
@@ -622,9 +622,9 @@ fn pixel_from_ada(dmarc: bool) -> Vec<u8> {
 /// A config directory whose `settings.toml` says `edit`, and the window directories over it.
 fn configured(
     edit: impl FnOnce(&mut mail_ui_model::settings::MailSettings),
-) -> (tempfile::TempDir, crate::ui::appearance::WindowDirs) {
+) -> (tempfile::TempDir, mail_ui_kit::appearance::WindowDirs) {
     let dir = tempfile::tempdir().unwrap();
-    let dirs = crate::ui::appearance::WindowDirs {
+    let dirs = mail_ui_kit::appearance::WindowDirs {
         config: dir.path().join("config"),
         state: dir.path().join("state"),
     };
@@ -634,7 +634,7 @@ fn configured(
 }
 
 /// What `settings.toml` under `dirs` says now.
-fn stored(dirs: &crate::ui::appearance::WindowDirs) -> mail_ui_model::settings::MailSettings {
+fn stored(dirs: &mail_ui_kit::appearance::WindowDirs) -> mail_ui_model::settings::MailSettings {
     mail_ui_model::settings::load(&mail_ui_model::settings::root_for(&dirs.config))
 }
 
@@ -642,15 +642,15 @@ fn stored(dirs: &crate::ui::appearance::WindowDirs) -> mail_ui_model::settings::
 /// provides them (`prefs::use_prefs`), so "Always Load from" has somewhere to write.
 #[component]
 fn OpenConfigured(thread: ThreadId) -> Element {
-    let dirs = try_consume_context::<crate::ui::appearance::WindowDirs>();
-    let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
+    let dirs = try_consume_context::<mail_ui_kit::appearance::WindowDirs>();
+    let _ = mail_ui_kit::prefs::use_prefs(dirs.as_ref());
     let shell = use_signal(Shell::default);
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
 /// One message from `from` in a thread of its own, opened under `dirs`' settings.
 fn open_configured(
-    dirs: &crate::ui::appearance::WindowDirs,
+    dirs: &mail_ui_kit::appearance::WindowDirs,
     from: &Address,
     raw: Vec<u8>,
 ) -> (VirtualDom, crate::ui::fixtures::Seen, tempfile::TempDir) {

@@ -14,7 +14,7 @@ use porter_core::AccountId;
 use super::work::{Dest, Looked, import_now, look};
 use super::{FilesSheet, Phase, Report};
 use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into};
-use crate::ui::view::{FileSheet, Shell};
+use mail_ui_kit::view::{FileSheet, Shell};
 
 /// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
 /// drawn a frame after the one that asked for it, on quire's clock.
@@ -221,13 +221,13 @@ async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
     let (store, dir) = crate::ui::fixtures::seeded();
     let local = import_locally(&store, &a_maildir(dir.path()));
     // One Space showing every account, the IMAP one among them.
-    let known = crate::ui::data::known_accounts(&crate::ui::fixtures::client(&store))
+    let known = mail_ui_kit::data::known_accounts(&crate::ui::fixtures::client(&store))
         .expect("the accounts");
-    let everything = crate::ui::space::built(
+    let everything = mail_ui_kit::space::built(
         vec![(
             "Mail".to_owned(),
             ds::prelude::SpaceLook::default(),
-            crate::ui::space::Mail::of(known),
+            mail_ui_kit::space::Mail::of(known),
         )],
         0,
     );
@@ -246,7 +246,7 @@ async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
     );
 
     // A Space over the local folders alone, on screen; the IMAP account is in no Space.
-    let alone = crate::ui::space::first_run(std::slice::from_ref(&local));
+    let alone = mail_ui_kit::space::first_run(std::slice::from_ref(&local));
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(crate::ui::fixtures::client(&store))
         .with_root_context(alone);
@@ -292,7 +292,7 @@ fn local_folders_send_nothing_and_tell_no_server() {
         .items[0]
         .clone();
     assert_eq!(thread.star, Star::Unstarred);
-    assert!(crate::ui::ops::apply_op(
+    assert!(mail_ui_kit::ops::apply_op(
         &crate::ui::fixtures::client(&store),
         thread.id,
         OpKind::Star

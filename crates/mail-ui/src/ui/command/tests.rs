@@ -4,14 +4,14 @@
 use super::items::{Pick, chips, complete_syntax, interpret, rows_of, search_now};
 use super::*;
 use crate::ui::fixtures::work;
-use crate::ui::menu::Right;
-use crate::ui::view::Shell;
 use chordkit::Platform;
 use chrono::Utc;
 use dioxus_core::VirtualDom;
 use ds::prelude::*;
 use mail_core::SqliteStore;
 use mail_core::search::{Results, Top};
+use mail_ui_kit::menu::Right;
+use mail_ui_kit::view::Shell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -290,7 +290,7 @@ fn no_two_commands_share_a_label() {
 #[component]
 fn Runs(command: &'static dyn Command) -> Element {
     let shell = use_signal(|| Shell {
-        bar: Bar::Open(crate::ui::view::BarOpen::over(String::new())),
+        bar: Bar::Open(mail_ui_kit::view::BarOpen::over(String::new())),
         ..Shell::default()
     });
     let pages = use_signal(|| 1u32);

@@ -48,10 +48,10 @@ use super::float::{self, suggest_mention};
 use super::page::Page;
 use super::render;
 use super::wire::{self, Heard};
-use crate::ui::actions;
-use crate::ui::host::Host;
-use crate::ui::view::Shell;
 use mail_editor::{Caret, Doc, InputEvent, Pos, Range};
+use mail_ui_kit::actions;
+use mail_ui_kit::host::Host;
+use mail_ui_kit::view::Shell;
 
 /// Frames a read of the surface's place waits for the document to be laid out and free.
 const TRIES: usize = 24;
@@ -228,8 +228,8 @@ pub(super) fn Surface(
                         == Some(actions::Heard::Standard(StandardAction::Paste))
                 {
                     // The paste chord, and the surface had nothing to paste: the clipboard holds
-                    // no text, and may hold a picture (`crate::ui::pasted_image`).
-                    crate::ui::pasted_image::read(move |png| {
+                    // no text, and may hold a picture (`mail_ui_kit::pasted_image`).
+                    mail_ui_kit::pasted_image::read(move |png| {
                         super::attach::paste_image(page, png);
                     });
                 }
@@ -444,7 +444,7 @@ fn heard(
 /// An editor event, handed to the page: on the page's own selection,
 /// through the IME rule, and the `@` menu asking the contact book what follows it.
 fn edit(mut page: Signal<Page>, event: InputEvent) {
-    let client = crate::ui::live::try_client();
+    let client = mail_ui_kit::live::try_client();
     let mut write = page.write();
     let caret = write.session.caret.pos;
     let selection = write.selection.unwrap_or(Range {

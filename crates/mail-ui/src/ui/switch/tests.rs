@@ -3,8 +3,6 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, Work, chord, dispatching, rebuild_into, root_attr, work,
 };
-use crate::ui::space::{self, Mail, Scope, SpaceId};
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
 use ds::prelude::{Scheme, SpaceLook, Theme, Word};
@@ -13,6 +11,8 @@ use ds::style::space::palette::{Dot, derive, gradient};
 use ds::style::space::presets::PRESETS;
 use mail_domain::ThreadId;
 use mail_domain::id::account_id_from_uuid;
+use mail_ui_kit::space::{self, Mail, Scope, SpaceId};
+use mail_ui_kit::view::Shell;
 use porter_core::AccountId;
 use uuid::Uuid;
 
@@ -59,10 +59,10 @@ fn a_space_gets_its_place_and_thread_back_and_nothing_else() {
     elsewhere.open(thread(9));
     elsewhere.search = "from:dana".to_owned();
     // Every further menu, Move To's included, is put away with the Space it was opened in.
-    elsewhere.further = Some(crate::ui::view::FurtherMenu {
+    elsewhere.further = Some(mail_ui_kit::view::FurtherMenu {
         thread: thread(9),
-        further: crate::ui::view::Further::Move,
-        opened: crate::ui::view::Opened::Reader,
+        further: mail_ui_kit::view::Further::Move,
+        opened: mail_ui_kit::view::Opened::Reader,
     });
     restore(&mut elsewhere, &left);
     assert_eq!(elsewhere.further, None, "a menu followed into the Space");
@@ -128,7 +128,7 @@ async fn drawn_when(dom: &mut VirtualDom, done: impl Fn(&str) -> bool) -> String
 async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
     dispatching();
     let built = work();
-    let ids = crate::ui::data::accounts(&crate::ui::fixtures::client(&built.store));
+    let ids = mail_ui_kit::data::accounts(&crate::ui::fixtures::client(&built.store));
     let home = SpaceLook {
         theme: Theme::Light,
         ..dotted(PRESETS[4].dots)

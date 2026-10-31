@@ -17,9 +17,9 @@ use ds::root::common::Common;
 use mail_client::compose::{Fit, PictureSize, SendLimit, Weight, fit};
 use mail_domain::human_size;
 
-use super::super::menu::{Floating, MenuItem, Right};
 use super::page::{Float, Guard, Page};
-use crate::ui::press::on_primary;
+use mail_ui_kit::menu::{Floating, MenuItem, Right};
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::copy;
 
 /// What the page's files were found to weigh, and the most its account sends.
@@ -39,7 +39,7 @@ pub(super) fn use_weight(mut page: Signal<Page>) {
     });
     let weighed = use_resource(move || {
         let (draft, from, attached) = carried();
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         async move {
             if attached.is_empty() {
                 return None;

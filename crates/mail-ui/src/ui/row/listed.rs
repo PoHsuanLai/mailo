@@ -6,8 +6,6 @@
 //! reader, a draft in the composer, a message held for its time on a page that says when it
 //! leaves — and each has its menu on a right click, built here from its own state.
 
-use super::super::list_search::RowHit;
-use super::super::text::sender;
 use super::menu::{self, Pick};
 use super::runs;
 use crate::ui::menus::when_words;
@@ -16,6 +14,8 @@ use ds::components::app::thread_height::ThreadLines;
 use ds::components::menus::item::item::MenuItem;
 use ds::prelude::*;
 use mail_domain::{Draft, DraftId, MessageId, ReadState, SendState, ThreadId, ThreadSummary};
+use mail_ui_kit::list_search::RowHit;
+use mail_ui_kit::text::sender;
 use mail_ui_model::copy;
 use mail_ui_model::selection::Click;
 

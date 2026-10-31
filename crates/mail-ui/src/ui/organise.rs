@@ -3,13 +3,13 @@
 //!
 //! Kept per place, beside what else the place is: a saved view in its own row in the client
 //! ([`mail_domain::View::threading`]), as its grouping is; a mailbox, label or folder among
-//! `window.single_messages` in `settings.toml` ([`crate::ui::prefs::change`]), as the list's
+//! `window.single_messages` in `settings.toml` ([`mail_ui_kit::prefs::change`]), as the list's
 //! other choices are. The list's ⋯ and the search bar's panel both turn it here.
 
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_client::conversation::{kept_single, saved_of, saved_place};
 use mail_domain::Threading;
+use mail_ui_kit::view::Shell;
 
 /// The other way of listing from `now`.
 fn turned(now: Threading) -> Threading {
@@ -40,7 +40,7 @@ pub(in crate::ui) fn turn(mut shell: Signal<Shell>) {
                 ..view.clone()
             };
             // Written off the thread that draws; the list turns once the view is kept.
-            crate::ui::motion::keep(mail_client::act::Keep::View(view.clone()), move |result| {
+            mail_ui_kit::motion::keep(mail_client::act::Keep::View(view.clone()), move |result| {
                 if let Err(why) = result {
                     log::warn!("Organise by Conversation was not kept in the view: {why}");
                     return;
@@ -60,7 +60,7 @@ pub(in crate::ui) fn turn(mut shell: Signal<Shell>) {
             }
             // Shown at once whatever the write does; a window with nowhere to write keeps it
             // until it closes.
-            if let Err(why) = crate::ui::prefs::change(|settings| {
+            if let Err(why) = mail_ui_kit::prefs::change(|settings| {
                 let window = &mut settings.window;
                 window.single_messages = kept_single(&window.single_messages, &place, next);
             }) {

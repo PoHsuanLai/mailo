@@ -3,11 +3,11 @@
 //! is marked invalid, for an address that cannot be a relay's. Against the fixture's store only:
 //! nothing is registered or subscribed from a page.
 
-use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Work, chord, drain_seen, type_into, work};
 use dioxus::html::Modifiers;
 use mail_core::sync::graph_push;
 use mail_domain::Incoming;
+use mail_ui_kit::data::account_rows;
 use mail_ui_model::copy::errors::{RELAY_EXTRAS, RELAY_NOT_HTTPS};
 use mail_ui_model::copy::fields::account::{PUSH_RELAY, PUSH_RELAY_EXAMPLE};
 use porter_core::AccountId;

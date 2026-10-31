@@ -19,9 +19,9 @@ use mail_domain::MessageId;
 
 use super::own::Sheet;
 use super::previewer::{self, HEAD, Part};
-use crate::ui::remedy::plainly;
-use crate::ui::view::{Preview, Shell, Viewing};
 use mail_client::attachment_image::{self, Kind, Page, Picture, Unavailable};
+use mail_ui_kit::remedy::plainly;
+use mail_ui_kit::view::{Preview, Shell, Viewing};
 use mail_ui_model::copy;
 
 /// What Peek draws for a part.
@@ -161,7 +161,7 @@ type Toasts = Option<ds::stack::toast_hub::ToastHub>;
 
 /// Save the part to the downloads folder, as the strip's Save does, and say where in a toast.
 fn save(viewing: Viewing, toasts: Toasts) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let dir = crate::ui::files::save_dir();
     let said = match client.attach().save(viewing.message, viewing.index, &dir) {
         Ok(path) => {
@@ -184,7 +184,7 @@ fn attachment_failure(failure: mail_client::prelude::CoreError, said: &str) -> S
     use mail_client::prelude::CoreError;
     match failure {
         CoreError::AttachmentOnServer { .. } | CoreError::NoAttachment { .. } => {
-            crate::ui::remedy::told(failure)
+            mail_ui_kit::remedy::told(failure)
         }
         other => plainly(said, other),
     }
@@ -312,7 +312,7 @@ fn write_for_open(client: &Client, root: &Path, viewing: Viewing) -> Result<Path
 /// Open the part in the app the system gives its kind. From a press or a key: the write and the
 /// opener run off the thread that draws, and only a failure is said.
 pub(super) fn open_in_app(viewing: Viewing) {
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     spawn(async move {
         let said = copy::errors::ATTACHMENT_NOT_OPENED;
@@ -332,16 +332,16 @@ pub(super) fn open_in_app(viewing: Viewing) {
 /// Peek on an attachment. Mounted while `shell.preview` is a part.
 #[component]
 pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
-    let client = crate::ui::live::use_client();
+    let client = mail_ui_kit::live::use_client();
     let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
     // The part and the page, and nothing else of the shell: the count written back below must
     // not draw the page again.
     let wanted = use_memo(move || {
         viewing_of(&shell.read()).map(|viewing| (viewing.message, viewing.index, viewing.page))
     });
-    let hours = crate::ui::clock::hours();
+    let hours = mail_ui_kit::clock::hours();
     let drawn = use_resource(move || {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let wanted = wanted();
         async move {
             let (message, index, page) = wanted?;
@@ -423,8 +423,8 @@ pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
                             label: copy::aria::PREVIOUS_PAGE.to_owned(),
                             title: Some(copy::aria::PREVIOUS_PAGE.to_owned()),
                             title_shortcut: Some(ds::prelude::Shortcut(vec![ShortcutKey::Up])),
-                            availability: crate::ui::press::available(viewing.page > 0),
-                            onclick: crate::ui::press::on_primary(move || super::pressed(|| super::turn(shell, -1))),
+                            availability: mail_ui_kit::press::available(viewing.page > 0),
+                            onclick: mail_ui_kit::press::on_primary(move || super::pressed(|| super::turn(shell, -1))),
                         }
                         span { class: "peek-page", {copy::status::page_of(viewing.page + 1, count)} }
                         Button {
@@ -434,18 +434,18 @@ pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
                             label: copy::aria::NEXT_PAGE.to_owned(),
                             title: Some(copy::aria::NEXT_PAGE.to_owned()),
                             title_shortcut: Some(ds::prelude::Shortcut(vec![ShortcutKey::Down])),
-                            availability: crate::ui::press::available(viewing.page + 1 < count),
-                            onclick: crate::ui::press::on_primary(move || super::pressed(|| super::turn(shell, 1))),
+                            availability: mail_ui_kit::press::available(viewing.page + 1 < count),
+                            onclick: mail_ui_kit::press::on_primary(move || super::pressed(|| super::turn(shell, 1))),
                         }
                     }
                     Button {
                         label: copy::controls::SAVE.to_owned(),
-                        onclick: crate::ui::press::on_primary(move || super::pressed(|| save(viewing, toasts))),
+                        onclick: mail_ui_kit::press::on_primary(move || super::pressed(|| save(viewing, toasts))),
                     }
                     Button {
                         label: copy::controls::OPEN.to_owned(),
-                        title_shortcut: crate::ui::actions::open_in_app_tip(),
-                        onclick: crate::ui::press::on_primary(move || super::pressed(|| open_in_app(viewing))),
+                        title_shortcut: mail_ui_kit::actions::open_in_app_tip(),
+                        onclick: mail_ui_kit::press::on_primary(move || super::pressed(|| open_in_app(viewing))),
                     }
                 }
                 div { class: "peek-main", {main} }
@@ -477,8 +477,8 @@ fn SheetView(sheet: Sheet) -> Element {
 mod tests {
     use super::{LEFT_OPEN_FOR, OPEN_PREFIX, sweep_in, write_for_open};
     use crate::ui::downloads::unedited;
-    use crate::ui::view::Viewing;
     use mail_core::Store as _;
+    use mail_ui_kit::view::Viewing;
     use mail_ui_model::settings::RemoveUnedited;
     use std::time::SystemTime;
 

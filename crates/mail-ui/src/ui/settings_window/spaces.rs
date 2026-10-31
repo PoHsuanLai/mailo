@@ -16,9 +16,7 @@
 //! or when the page is left. A colour is shown as it is dragged and written when Custom's popover
 //! closes, or at once for a preset.
 
-use crate::ui::space::{Handle, Mail, Space, SpaceId};
 use crate::ui::space_menu::{accounts, toggled};
-use crate::ui::view::{Shell, SpacesPage};
 use dioxus::prelude::*;
 use ds::components::app::space_editor::swatches::PresetSwatches;
 use ds::components::controls::button_model::ButtonRole;
@@ -38,6 +36,8 @@ use ds::style::space::dot_paint::DotPaint;
 use ds::style::space::look::SpaceLook;
 use ds::style::space::palette::derive;
 use mail_client::profile::ProfileId;
+use mail_ui_kit::space::{Handle, Mail, Space, SpaceId};
+use mail_ui_kit::view::{Shell, SpacesPage};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -149,7 +149,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
         copy::controls::NEW_SPACE.to_owned(),
         rsx! {
             Row {
-                leading: crate::ui::common::add_mark(),
+                leading: mail_ui_kit::common::add_mark(),
                 title: copy::controls::NEW_SPACE,
                 size: RowSize::Settings,
                 onclick: move |_| {
@@ -185,7 +185,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
 /// A Space's page: its name, colour and theme, the accounts it shows, and Delete Space….
 #[component]
 fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
-    let accounts_now = crate::ui::data::use_account_rows();
+    let accounts_now = mail_ui_kit::data::use_account_rows();
     let mut deleting = use_signal(|| Deleting::Showing);
     let mut named = use_signal(|| Named::Named);
     let held = handle.spaces();
@@ -273,7 +273,7 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
                         label: copy::controls::DELETE_SPACE,
                         role: ButtonRole::Destructive,
                         common: Common { aria_label: Some(copy::confirm::delete_space(&name)), ..Common::default() },
-                        onclick: crate::ui::press::on_primary(move || deleting.set(Deleting::Asking)),
+                        onclick: mail_ui_kit::press::on_primary(move || deleting.set(Deleting::Asking)),
                     }
                 }
             }
@@ -303,7 +303,7 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
 /// has, drafted here, then Create Space, which adds it once it has a name. Back drops it.
 #[component]
 fn NewSpacePage(shell: Signal<Shell>, handle: Handle) -> Element {
-    let accounts_now = crate::ui::data::use_account_rows();
+    let accounts_now = mail_ui_kit::data::use_account_rows();
     let mut draft = use_signal(|| drafted(&handle.spaces().peek()));
     let Some(made) = draft() else {
         return rsx! {};
@@ -381,7 +381,7 @@ fn NewSpacePage(shell: Signal<Shell>, handle: Handle) -> Element {
                 Button {
                     label: copy::controls::CREATE_SPACE,
                     availability: if named == Named::Named { Availability::Enabled } else { Availability::Disabled },
-                    onclick: crate::ui::press::on_primary(move || create(shell, handle, draft.peek().clone())),
+                    onclick: mail_ui_kit::press::on_primary(move || create(shell, handle, draft.peek().clone())),
                     common: Common { aria_label: Some(copy::controls::CREATE_SPACE.to_owned()), ..Common::default() },
                 }
             }
@@ -391,7 +391,7 @@ fn NewSpacePage(shell: Signal<Shell>, handle: Handle) -> Element {
 
 /// The Space New Space would add now, "Space N" and tinted from the next preset as the kit
 /// makes one, over no account; in no list yet.
-fn drafted(spaces: &crate::ui::space::Spaces) -> Option<Space> {
+fn drafted(spaces: &mail_ui_kit::space::Spaces) -> Option<Space> {
     let mut probe = spaces.clone();
     let id = probe.add(Mail::new_in(&ProfileId::default()));
     probe.get(id).cloned()

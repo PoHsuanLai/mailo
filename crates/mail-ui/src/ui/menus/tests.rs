@@ -1,6 +1,4 @@
 use super::super::app::App;
-use super::super::menu::Right;
-use super::super::ops::apply_label;
 use crate::ui::fixtures::{acct_account, dispatching, inbox_query, realistic};
 use chrono::TimeZone;
 use dioxus::prelude::*;
@@ -8,6 +6,8 @@ use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_core::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_kit::menu::Right;
+use mail_ui_kit::ops::apply_label;
 
 /// Labels, in both directions.
 ///
@@ -150,7 +150,7 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
     assert!(
         items
             .iter()
-            .all(|item| item.tile == super::super::menu::Tile::None),
+            .all(|item| item.tile == mail_ui_kit::menu::Tile::None),
         "{items:?}"
     );
     for (phrase, name) in expect {

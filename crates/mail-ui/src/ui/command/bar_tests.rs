@@ -7,12 +7,12 @@ use super::pictures::{BarAlone, BarAloneProps, held};
 use super::sections::{COMMANDS, PLACES, PLACES_AND_PEOPLE, RECENT};
 use super::*;
 use crate::ui::fixtures::{chord, dispatching, drain_seen, rebuild_into, type_into, work};
-use crate::ui::host::{Ask, Recorder};
-use crate::ui::view::{BarListing, BarOpen};
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
 use mail_core::SqliteStore;
 use mail_core::Store;
+use mail_ui_kit::host::{Ask, Recorder};
+use mail_ui_kit::view::{BarListing, BarOpen};
 use mail_ui_model::copy::menus;
 use std::sync::Arc;
 

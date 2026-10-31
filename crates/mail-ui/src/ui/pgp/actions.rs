@@ -9,7 +9,7 @@ use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
 use ds::root::common::Common;
 
-use super::super::menu::anchor_at;
+use mail_ui_kit::menu::anchor_at;
 use mail_ui_model::copy;
 
 /// What a key's or certificate's menu can do.

@@ -7,13 +7,13 @@
 //! Copy Code goes through `ui::sensitive_copy`, not the window's host: the code is kept out of
 //! clipboard history and cloud sync, which the host's plain copy does not do.
 
-use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Bezel;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::{BlobId, MessageId};
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::copy::{controls, status, toasts};
 
 /// The line for one message, once its code is known; nothing for a message with none.
@@ -28,7 +28,7 @@ pub(super) fn CodeLine(message: MessageId, body: Option<BlobId>) -> Element {
         move || looks.code_cached(message, body)
     });
     let _look = use_resource(move || {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let looks = looks.clone();
         async move {
             if known.peek().is_some() {
@@ -56,8 +56,8 @@ pub(super) fn CodeLine(message: MessageId, body: Option<BlobId>) -> Element {
                 label: controls::COPY_CODE,
                 common: Common { aria_label: Some(label), ..Common::default() },
                 onclick: on_primary(move || {
-                    crate::ui::sensitive_copy::copy(&copied);
-                    crate::ui::motion::tell(toasts::CODE_COPIED.to_owned(), crate::ui::motion::Follow::Nothing);
+                    mail_ui_kit::sensitive_copy::copy(&copied);
+                    mail_ui_kit::motion::tell(toasts::CODE_COPIED.to_owned(), mail_ui_kit::motion::Follow::Nothing);
                 }),
             }
         }

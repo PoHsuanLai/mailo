@@ -871,6 +871,25 @@ pub fn change(
     Ok(settings)
 }
 
+/// `values` with `path` set to `value`, the tables on the way made where missing.
+pub fn with_value(mut values: toml::Value, path: &str, value: toml::Value) -> toml::Value {
+    let mut at = &mut values;
+    let parts: Vec<&str> = path.split('.').collect();
+    for (index, part) in parts.iter().enumerate() {
+        let Some(table) = at.as_table_mut() else {
+            return values;
+        };
+        if index + 1 == parts.len() {
+            table.insert((*part).to_owned(), value);
+            return values;
+        }
+        at = table
+            .entry((*part).to_owned())
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    }
+    values
+}
+
 /// `mailo --write-schema <dir>`: write `mailo.settings.toml` into `dir`.
 pub fn write_schema(dir: &Path) -> Result<String, String> {
     let path = schema().write_to(dir).map_err(|e| e.to_string())?;

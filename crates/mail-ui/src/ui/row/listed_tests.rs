@@ -2,12 +2,12 @@
 
 use super::listed::{Listed, Opens};
 use super::menu::{self, Pick};
-use crate::ui::list_search::RowHit;
 use chrono::{DateTime, TimeZone, Utc};
 use ds::components::app::thread_height::ThreadLines;
 use ds::components::menus::item::item::MenuItem;
 use ds::prelude::*;
 use mail_domain::*;
+use mail_ui_kit::list_search::RowHit;
 use mail_ui_model::copy;
 use mail_ui_model::selection::Click;
 

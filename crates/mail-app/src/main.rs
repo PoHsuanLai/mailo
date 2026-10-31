@@ -174,7 +174,7 @@ fn main() {
     }
     {
         let config = mail_core::config::config_dir();
-        let look = mail_ui::ui::view::Appearance {
+        let look = mail_ui_kit::view::Appearance {
             marks: mail_ui_model::settings::person_root()
                 .map(|root| mail_ui_model::settings::load(&root))
                 .unwrap_or_default()
@@ -186,23 +186,23 @@ fn main() {
         // were theirs.
         let legacy = config
             .as_deref()
-            .map(mail_ui::ui::appearance::legacy)
+            .map(mail_ui_kit::appearance::legacy)
             .unwrap_or_default();
         // The look is the desktop's (`quire/appearance.toml`), which the window follows live.
         // What mailo kept for itself is brought over once, when the desktop has none, and
         // never written again.
-        if let (Some(from), Some(to)) = (config.as_deref(), mail_ui::ui::appearance::desktop_dir())
+        if let (Some(from), Some(to)) = (config.as_deref(), mail_ui_kit::appearance::desktop_dir())
         {
-            mail_ui::ui::appearance::adopt(from, &to);
+            mail_ui_kit::appearance::adopt(from, &to);
         }
         let ids = account_ids(&store);
         let dirs = config.and_then(|config| {
             mail_core::config::state_dir()
-                .map(|state| mail_ui::ui::appearance::WindowDirs { config, state })
+                .map(|state| mail_ui_kit::appearance::WindowDirs { config, state })
         });
         // The stored Spaces, or a first run over the accounts, written where the window
         // keeps them.
-        let spaces = mail_ui::ui::space::boot(dirs.as_ref(), &ids, &legacy);
+        let spaces = mail_ui_kit::space::boot(dirs.as_ref(), &ids, &legacy);
         if let Err(why) = mail_app::window::open(
             store,
             look,

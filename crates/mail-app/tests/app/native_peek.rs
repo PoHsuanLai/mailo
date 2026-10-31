@@ -13,7 +13,7 @@ use ds_blitz::FocusFallback;
 use ds_harness::{Clock, Harness, HarnessConfig};
 use mail_core::{Arrival, SqliteStore, absorb};
 use mail_domain::*;
-use mail_ui::ui::native::{Browse, Fetch, Original};
+use mail_ui_kit::original::{Browse, Fetch, Original};
 use mail_ui_model::copy;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -126,7 +126,7 @@ fn open(browse: Opened) -> (Harness, tempfile::TempDir) {
     let original = Original::new(Arc::new(NoFetch), Arc::new(browse));
     let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(seeded(dir.path()), mail_client::ClientConfig::default()),
-        mail_ui::ui::view::Appearance::default(),
+        mail_ui_kit::view::Appearance::default(),
         None,
         None,
         mail_ui::ui::ask::Open::raise(),

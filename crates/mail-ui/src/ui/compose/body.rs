@@ -14,9 +14,6 @@ use ds::edit::pointer::EditFocus;
 use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
 
-use super::super::common::classed;
-use super::super::menu::{MenuKey, anchor_at, menu_items, menu_key};
-use super::super::press::on_primary;
 use super::float::{
     Picked, commit, current_kind, emoji_items, mention_items, pick_mention, pick_slash, pick_turn,
     turn_items,
@@ -24,9 +21,12 @@ use super::float::{
 use super::page::{Float, Page};
 use super::styling;
 use super::templates::{self, TemplateFloat, page_slash_items};
-use crate::ui::actions::{Heard, Own};
-use crate::ui::view::Shell;
 use mail_editor::{InputEvent, Mark, Nest, Node, Op, Presence, Range};
+use mail_ui_kit::actions::{Heard, Own};
+use mail_ui_kit::common::classed;
+use mail_ui_kit::menu::{MenuKey, anchor_at, menu_items, menu_key};
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
@@ -188,15 +188,15 @@ fn close_picker(mut page: Signal<Page>) {
     if page.peek().float == Float::EmojiPicker {
         page.write().float = Float::Closed;
     }
-    crate::ui::host::Host::focus_next_frame(".c-body");
+    mail_ui_kit::host::Host::focus_next_frame(".c-body");
 }
 
 fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
     if templates::pick(&mut page.write(), key) {
         // The name field, or the picker's search field, takes the keys once it is there.
         match page.peek().float {
-            Float::SaveTemplate(_) => crate::ui::host::Host::focus_after_task(".tpl-name input"),
-            Float::EmojiPicker => crate::ui::host::Host::focus_after_task(".em-picker input"),
+            Float::SaveTemplate(_) => mail_ui_kit::host::Host::focus_after_task(".tpl-name input"),
+            Float::EmojiPicker => mail_ui_kit::host::Host::focus_after_task(".em-picker input"),
             _ => {}
         }
         return;
@@ -420,7 +420,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
     let turn = turn_items(kind);
     let now = turn
         .iter()
-        .find(|item| matches!(item.right, super::super::menu::Right::Check(true)))
+        .find(|item| matches!(item.right, mail_ui_kit::menu::Right::Check(true)))
         .map(|item| item.key.clone());
     let marks = vec![
         // Named, since a segment that is a picture alone says nothing else. gap(quire): a named
@@ -458,7 +458,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                                 link(page);
                             } else if key == "Escape" {
                                 page.write().float = Float::Closed;
-                                crate::ui::host::Host::focus_next_frame(".c-body");
+                                mail_ui_kit::host::Host::focus_next_frame(".c-body");
                             }
                         },
                         TextField {
@@ -498,7 +498,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         bezel: Bezel::Toolbar,
                         label: "Link",
                         title: "Link".to_owned(),
-                        title_shortcut: crate::ui::actions::tip_own(Own::Search),
+                        title_shortcut: mail_ui_kit::actions::tip_own(Own::Search),
                         icon: Icon::Link,
                         image: ImagePosition::Only,
                         onclick: on_primary(move || page.write().float = Float::Link(String::new())),
@@ -546,5 +546,5 @@ fn link(mut page: Signal<Page>) {
     );
     write.float = Float::Closed;
     // The field goes with the float: the body takes the keyboard back, and the bar with it.
-    crate::ui::host::Host::focus_next_frame(".c-body");
+    mail_ui_kit::host::Host::focus_next_frame(".c-body");
 }

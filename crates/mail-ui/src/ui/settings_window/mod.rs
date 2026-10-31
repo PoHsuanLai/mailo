@@ -47,20 +47,19 @@ mod syncing;
 mod vips;
 
 pub(in crate::ui) use account::Seams as AccountSeams;
-pub(in crate::ui) use keys::with_value;
 pub(in crate::ui) use page::PAGES;
 pub use root::settings_root;
 
-use crate::ui::space::SpaceId;
-use crate::ui::view::{
-    AccountStep, AccountsPage, AccountsPane, ContactsPage, PageId, RulesAt, Shell, SpacesPage,
-    VacationAt,
-};
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
 use ds::components::chrome::sidebar_model::SidebarSection;
 use ds::prelude::*;
 use ds_blitz::{WindowHandle, WindowSpec};
+use mail_ui_kit::space::SpaceId;
+use mail_ui_kit::view::{
+    AccountStep, AccountsPage, AccountsPane, ContactsPage, PageId, RulesAt, Shell, SpacesPage,
+    VacationAt,
+};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::cell::RefCell;
@@ -291,9 +290,9 @@ fn quire() {
         }
         Err(why) => {
             log::warn!("the Settings window would not open: {why}");
-            crate::ui::motion::tell(
+            mail_ui_kit::motion::tell(
                 mail_ui_model::copy::toasts::would_not_open(TITLE),
-                crate::ui::motion::Follow::Nothing,
+                mail_ui_kit::motion::Follow::Nothing,
             );
         }
     }

@@ -14,7 +14,7 @@
 //! Every window draws the new account as the client says the store moved.
 
 use crate::ui::provider_chip::{MarkAt, style_of_mark};
-use crate::ui::view::Marks;
+use mail_ui_kit::view::Marks;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -32,8 +32,8 @@ use super::Join;
 use super::map::{self, Action, Out, Sheet, Step};
 use super::size;
 use crate::ui::app::Frame;
-use crate::ui::space::{self, Spaces};
 use crate::ui::style::STYLE;
+use mail_ui_kit::space::{self, Spaces};
 use mail_ui_model::add_account::host::{self, Ended, Shown};
 use mail_ui_model::add_account::provider::{Added, Seams};
 
@@ -79,7 +79,7 @@ pub(super) fn AddAccountWindow(wiring: Wiring, prefill: Option<String>, join: Jo
     let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
     let environment = use_environment(desktop.store(), desktop.prefs.clone(), spawner);
     use_context_provider(|| environment);
-    crate::ui::prefs::use_window_settings();
+    mail_ui_kit::prefs::use_window_settings();
     rsx! { AddAccountShell { wiring, prefill, join } }
 }
 
@@ -123,12 +123,12 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>, join: Join) -> Eleme
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
     crate::ui::provider_chip::use_fetch_missing(icons);
-    crate::ui::host::use_window_host();
-    let dirs = try_consume_context::<crate::ui::appearance::WindowDirs>();
-    let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
+    mail_ui_kit::host::use_window_host();
+    let dirs = try_consume_context::<mail_ui_kit::appearance::WindowDirs>();
+    let _ = mail_ui_kit::prefs::use_prefs(dirs.as_ref());
     // Icons or letters, as the provider-marks setting says.
     let marks = Marks::from(
-        crate::ui::prefs::use_settings()
+        mail_ui_kit::prefs::use_settings()
             .read()
             .window
             .provider_marks,
@@ -140,7 +140,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>, join: Join) -> Eleme
             dirs.as_ref()
                 .map(space::load)
                 .or_else(try_consume_context::<Spaces>)
-                .unwrap_or_else(|| crate::ui::space::first_run(&[]))
+                .unwrap_or_else(|| mail_ui_kit::space::first_run(&[]))
         }
     });
     let mut sheet = use_signal(Sheet::default);
@@ -270,7 +270,7 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
     let cancel = move |()| send.call(Action::Cancel);
     let back = move |()| send.call(Action::Back);
     let copy = move |text: String| {
-        crate::ui::hover::copy(&text);
+        mail_ui_kit::hover::copy(&text);
         send.call(Action::Copied);
     };
     let act = move |action: Option<Action>| {
@@ -393,8 +393,8 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
 
 /// The account mailo's client has for `address`, which the add has just written.
 pub(super) fn account_at(address: &str) -> Option<AccountId> {
-    let client = crate::ui::live::client();
-    crate::ui::data::account_rows(&client)
+    let client = mail_ui_kit::live::client();
+    mail_ui_kit::data::account_rows(&client)
         .into_iter()
         .find(|row| row.address == address)
         .map(|row| row.id)
@@ -407,7 +407,7 @@ pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId, join: 
     }
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.
-    if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>()
+    if let Some(dirs) = try_consume_context::<mail_ui_kit::appearance::WindowDirs>()
         && let Some(stored) = space::stored(&dirs)
         && *spaces.peek() != stored
     {

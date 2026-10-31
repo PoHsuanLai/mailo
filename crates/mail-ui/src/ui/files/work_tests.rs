@@ -13,10 +13,10 @@ use mail_domain::*;
 use porter_core::AccountId;
 
 use super::work::{self, Counted, Dest, Looked, export_now, import_now, look, prefill, suggested};
-use crate::ui::view::Shell;
 use mail_core::export::Target;
 use mail_core::formats::{Archive, writers};
 use mail_core::import::{AppleMail, Eml, Emlx, Maildir, Mbox, Source, Thunderbird};
+use mail_ui_kit::view::Shell;
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()

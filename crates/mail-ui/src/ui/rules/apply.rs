@@ -5,13 +5,13 @@
 //! an alert says so first and offers to apply the rules without the sending.
 
 use super::work::apply_to;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use mail_client::Client;
 use mail_client::rules::manage::Sending;
 use mail_domain::ThreadId;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// Apply the rules to `threads`: at once when none of them would send, else ask first.
@@ -33,13 +33,13 @@ pub(in crate::ui) fn apply_or_ask(
 }
 
 fn say(said: &str) {
-    crate::ui::motion::tell(said.to_owned(), crate::ui::motion::Follow::Nothing);
+    mail_ui_kit::motion::tell(said.to_owned(), mail_ui_kit::motion::Follow::Nothing);
 }
 
 /// Close the alert, applying nothing, and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().applying_rules = None;
-    crate::ui::host::Host::focus_app();
+    mail_ui_kit::host::Host::focus_app();
 }
 
 fn answer(shell: Signal<Shell>, sending: Sending) {
@@ -47,7 +47,7 @@ fn answer(shell: Signal<Shell>, sending: Sending) {
         return;
     };
     close(shell);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     say(&apply_to(&client, &threads, sending, chrono::Utc::now()));
 }
 
@@ -99,7 +99,7 @@ mod tests {
         let Probe(threads, asked) = consume_context::<Probe>();
         let shell = use_signal(Shell::default);
         use_hook(|| {
-            apply_or_ask(&crate::ui::live::client(), shell, threads.clone());
+            apply_or_ask(&mail_ui_kit::live::client(), shell, threads.clone());
             asked.store(shell.peek().applying_rules.is_some(), Ordering::SeqCst);
         });
         rsx! {}

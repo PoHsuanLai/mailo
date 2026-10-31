@@ -19,7 +19,6 @@ mod need;
 mod pass;
 mod scope;
 
-use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
@@ -29,6 +28,7 @@ use mail_client::schedule::Timing;
 use mail_client::sync::fresh::Pace;
 use mail_client::sync::report::Offer;
 use mail_client::{Client, Snapshot};
+use mail_ui_kit::view::Shell;
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -187,7 +187,7 @@ impl Fetching {
             &[(&link, self.pace(account))],
             now,
             &chrono::Local,
-            crate::ui::clock::hours(),
+            mail_ui_kit::clock::hours(),
         ))
     }
 
@@ -198,7 +198,7 @@ impl Fetching {
             .iter()
             .filter_map(|id| links.get(id).map(|link| (link, self.pace(id))))
             .collect();
-        status_line(&shown, now, &chrono::Local, crate::ui::clock::hours())
+        status_line(&shown, now, &chrono::Local, mail_ui_kit::clock::hours())
     }
 }
 
@@ -215,9 +215,9 @@ pub(in crate::ui) fn sync_now(shell: &Shell) {
         return;
     };
     if fetching.busy_in(shell) {
-        crate::ui::motion::tell(
+        mail_ui_kit::motion::tell(
             ALREADY_SYNCING.to_owned(),
-            crate::ui::motion::Follow::Nothing,
+            mail_ui_kit::motion::Follow::Nothing,
         );
         return;
     }
@@ -235,9 +235,9 @@ pub(in crate::ui) fn sync_account(account: AccountId) {
         .link(account.clone())
         .is_some_and(|link| link.is_busy())
     {
-        crate::ui::motion::tell(
+        mail_ui_kit::motion::tell(
             ALREADY_SYNCING.to_owned(),
-            crate::ui::motion::Follow::Nothing,
+            mail_ui_kit::motion::Follow::Nothing,
         );
         return;
     }
@@ -263,26 +263,26 @@ pub(in crate::ui) fn use_status(shell: Signal<Shell>) -> Option<StatusLine> {
     });
     let _ = tick();
     let fetching = try_consume_context::<Fetching>()?;
-    Some(fetching.status(&shell.read(), crate::ui::clock::now()))
+    Some(fetching.status(&shell.read(), mail_ui_kit::clock::now()))
 }
 
 /// Say which accounts came since the window last looked, once it has looked: an account added in
 /// its own window (or by `mailo account add`) is otherwise seen only as the sidebar changing. As
 /// the client keeps the accounts read; the first reading is only what was already there.
 fn announce_added() {
-    let accounts = crate::ui::live::use_live(|| mail_client::query::Accounts);
+    let accounts = mail_ui_kit::live::use_live(|| mail_client::query::Accounts);
     let known = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(None::<BTreeSet<AccountId>>)));
     use_effect(move || {
         let Snapshot::Ready { value, .. } = &*accounts.read() else {
             return;
         };
-        let rows = crate::ui::data::rows_of(value);
+        let rows = mail_ui_kit::data::rows_of(value);
         let mut known = known.borrow_mut();
         if let Some(before) = known.as_ref() {
             for row in rows.iter().filter(|row| !before.contains(&row.id)) {
-                crate::ui::motion::tell(
+                mail_ui_kit::motion::tell(
                     mail_ui_model::copy::toasts::account_added(&row.address),
-                    crate::ui::motion::Follow::Nothing,
+                    mail_ui_kit::motion::Follow::Nothing,
                 );
             }
         }
@@ -307,7 +307,8 @@ fn seams(client: &Client, speaking: Arc<std::sync::Mutex<Speaking>>) -> Seams {
         daemon: listener.daemon,
         schedule: delegate.0,
         folder: folder.0,
-        config: try_consume_context::<crate::ui::appearance::WindowDirs>().map(|dirs| dirs.config),
+        config: try_consume_context::<mail_ui_kit::appearance::WindowDirs>()
+            .map(|dirs| dirs.config),
         announce: try_consume_context::<crate::ui::follow_up::Notices>().map(|notices| Announce {
             notifier: notices.0,
             speaking,
@@ -322,7 +323,7 @@ fn seams(client: &Client, speaking: Arc<std::sync::Mutex<Speaking>>) -> Seams {
 
 /// Provide [`Fetching`] for the window, and have the client fetch. Once, from `App`.
 pub(in crate::ui) fn use_fetching() -> Fetching {
-    let client = crate::ui::live::use_client();
+    let client = mail_ui_kit::live::use_client();
     // The first window to ask starts it: the program's client fetches on a thread of its own
     // from then on, and one that reads here hands back what this window runs.
     let speaking = use_hook(|| Arc::new(std::sync::Mutex::new(Speaking::default())));
@@ -360,7 +361,7 @@ pub(in crate::ui) fn use_fetching() -> Fetching {
     let folders = use_signal(|| first.folders.clone());
     let ops = use_signal(BTreeMap::new);
     let held = use_signal(|| client.clone());
-    let paces = crate::ui::live::use_live(move || {
+    let paces = mail_ui_kit::live::use_live(move || {
         mail_client::query::Paces(links.read().keys().cloned().collect())
     });
     let fetching = use_context_provider(|| Fetching {

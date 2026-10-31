@@ -12,8 +12,6 @@
 //! browser sign-in has no form at all. So the name is given here, for a new account and an old
 //! one alike.
 
-use crate::ui::common::Problem;
-use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::content::label::Label;
 use ds::components::controls::button_model::ButtonRole;
@@ -24,6 +22,8 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::identity::Typed;
 use mail_domain::{Identity, IdentityId, IsDefault};
+use mail_ui_kit::common::Problem;
+use mail_ui_kit::press::on_primary;
 use mail_ui_model::copy;
 use porter_core::AccountId;
 
@@ -50,11 +50,11 @@ struct Editing {
 /// The account's identities, its own first; why not, when the client cannot say. Without a client
 /// to ask there are none.
 fn identities(account: &AccountId) -> Result<Vec<Identity>, String> {
-    match crate::ui::live::try_client() {
+    match mail_ui_kit::live::try_client() {
         Some(client) => client
             .identities()
             .of_account(account.clone())
-            .map_err(crate::ui::remedy::told),
+            .map_err(mail_ui_kit::remedy::told),
         None => Ok(Vec::new()),
     }
 }
@@ -62,7 +62,7 @@ fn identities(account: &AccountId) -> Result<Vec<Identity>, String> {
 /// Keep `typed` as the name of `account`'s own address, when it differs from what is kept. The
 /// revision moves only once it is kept; a client that refuses is said in `failed`.
 fn keep_name(account: &AccountId, typed: &str, mut failed: Signal<Option<(&'static str, String)>>) {
-    let Some(client) = crate::ui::live::try_client() else {
+    let Some(client) = mail_ui_kit::live::try_client() else {
         return;
     };
     let kept = match identities(account) {
@@ -84,7 +84,7 @@ fn keep_name(account: &AccountId, typed: &str, mut failed: Signal<Option<(&'stat
         }
         Err(why) => failed.set(Some((
             copy::titles::NOT_SAVED,
-            crate::ui::remedy::told(why),
+            mail_ui_kit::remedy::told(why),
         ))),
     }
 }
@@ -92,7 +92,7 @@ fn keep_name(account: &AccountId, typed: &str, mut failed: Signal<Option<(&'stat
 /// Save the alias being edited: added or changed, then the fields close; refused, they stay
 /// with the reason under them.
 fn save(account: &AccountId, mut editing: Signal<Option<Editing>>) {
-    let Some(client) = crate::ui::live::try_client() else {
+    let Some(client) = mail_ui_kit::live::try_client() else {
         return;
     };
     let Some(open) = editing.peek().clone() else {
@@ -111,7 +111,7 @@ fn save(account: &AccountId, mut editing: Signal<Option<Editing>>) {
         }
         Err(why) => {
             if let Some(open) = editing.write().as_mut() {
-                open.refused = Some(crate::ui::remedy::told(why));
+                open.refused = Some(mail_ui_kit::remedy::told(why));
             }
         }
     }
@@ -119,7 +119,7 @@ fn save(account: &AccountId, mut editing: Signal<Option<Editing>>) {
 
 /// Take the alias off its account, and close its fields.
 fn remove(id: IdentityId, mut editing: Signal<Option<Editing>>) {
-    let Some(client) = crate::ui::live::try_client() else {
+    let Some(client) = mail_ui_kit::live::try_client() else {
         return;
     };
     match client.identities().remove_alias(id) {
@@ -128,7 +128,7 @@ fn remove(id: IdentityId, mut editing: Signal<Option<Editing>>) {
         }
         Err(why) => {
             if let Some(open) = editing.write().as_mut() {
-                open.refused = Some(crate::ui::remedy::told(why));
+                open.refused = Some(mail_ui_kit::remedy::told(why));
             }
         }
     }
@@ -167,8 +167,9 @@ fn field(
 #[component]
 pub(super) fn SendsAs(account: AccountId) -> Element {
     // Read again when an identity is added, changed or removed.
-    let _ =
-        crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS | mail_client::Topics::IDENTITIES);
+    let _ = mail_ui_kit::live::moved_for(
+        mail_client::Topics::ACCOUNTS | mail_client::Topics::IDENTITIES,
+    );
     let mut editing = use_signal(|| None::<Editing>);
     let mut failed = use_signal(|| None::<(&'static str, String)>);
     // An unreadable list is said, once, and drawn as an account with no name and no aliases; the
@@ -228,7 +229,7 @@ pub(super) fn SendsAs(account: AccountId) -> Element {
         copy::controls::ADD_ALIAS.to_owned(),
         rsx! {
             Row {
-                leading: crate::ui::common::add_mark(),
+                leading: mail_ui_kit::common::add_mark(),
                 title: copy::controls::ADD_ALIAS,
                 size: RowSize::Settings,
                 onclick: Some(EventHandler::new(move |_| editing.set(Some(Editing {

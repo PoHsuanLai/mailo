@@ -8,15 +8,15 @@
 //! connections are Settings' own, one row away.
 
 use super::close;
-use crate::ui::bin::Bin;
-use crate::ui::motion::{Follow, tell};
-use crate::ui::ops::{Composes, Writes, open_composer};
-use crate::ui::view::{Bar, BarListing, Shell, Source};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::prelude::Icon;
 use mail_client::mailbox_filter::for_role;
 use mail_domain::ThreadId;
+use mail_ui_kit::bin::Bin;
+use mail_ui_kit::motion::{Follow, tell};
+use mail_ui_kit::ops::{Composes, Writes, open_composer};
+use mail_ui_kit::view::{Bar, BarListing, Shell, Source};
 use mail_ui_model::copy::{menus, status, toasts};
 
 /// What a command acts on: the window's shell, the list's pages and whether the sidebar is
@@ -111,7 +111,7 @@ fn empty(acts: Acts, bin: Bin) {
         .position(|one| one.source == source);
     if let Some(index) = index {
         crate::ui::sidebar::go_to(shell, pages, index);
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         crate::ui::destroy::ask_everything(&client, shell);
     }
 }
@@ -141,7 +141,7 @@ impl Command for Compose {
     }
 
     fn run(&self, acts: Acts) {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         // A refusal is the composer's to say (`open_composer` logs it).
         let _ = open_composer(&client, acts.shell, Writes::New);
         close(acts.shell);
@@ -202,7 +202,7 @@ impl Command for ForwardAttached {
             tell(toasts::OPEN_ONE_TO_FORWARD.to_owned(), Follow::Nothing);
             return;
         };
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let writes = Writes::answering(&shell.peek(), open, Composes::ForwardAttached);
         if let Err(why) = open_composer(&client, shell, writes) {
             tell(toasts::not_forwarded_as_attachment(&why), Follow::Nothing);
@@ -255,11 +255,13 @@ impl Command for Redirect {
     fn run(&self, acts: Acts) {
         let mut shell = acts.shell;
         on_open(acts.shell, |open| {
-            shell.write().toggle_further(crate::ui::view::FurtherMenu {
-                thread: open,
-                further: crate::ui::view::Further::Redirect,
-                opened: crate::ui::view::Opened::Reader,
-            });
+            shell
+                .write()
+                .toggle_further(mail_ui_kit::view::FurtherMenu {
+                    thread: open,
+                    further: mail_ui_kit::view::Further::Redirect,
+                    opened: mail_ui_kit::view::Opened::Reader,
+                });
         });
     }
 }
@@ -307,7 +309,7 @@ impl Command for ApplyRules {
 
     fn run(&self, acts: Acts) {
         let shell = acts.shell;
-        let targets = shell.peek().acted_on(&crate::ui::picks::drawn_order());
+        let targets = shell.peek().acted_on(&mail_ui_kit::motion::drawn_order());
         if targets.is_empty() {
             tell(
                 status::NOTHING_TO_APPLY_RULES_TO.to_owned(),
@@ -315,7 +317,7 @@ impl Command for ApplyRules {
             );
             return;
         }
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         crate::ui::rules::apply::apply_or_ask(&client, shell, targets);
     }
 }
@@ -573,7 +575,7 @@ impl Command for OpenContacts {
     }
 
     fn run(&self, _acts: Acts) {
-        crate::ui::settings_window::open_at(crate::ui::view::PageId::CONTACTS);
+        crate::ui::settings_window::open_at(mail_ui_kit::view::PageId::CONTACTS);
     }
 }
 

@@ -9,9 +9,9 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, chord, click, dispatching, drain_seen, rebuild_into, type_into, work,
 };
-use crate::ui::host::{Ask, Recorder};
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus_core::{ElementId, VirtualDom};
+use mail_ui_kit::host::{Ask, Recorder};
 use mail_ui_model::copy::menus;
 
 /// The window over the reference fixture, with a recorder for what it asks of its host.

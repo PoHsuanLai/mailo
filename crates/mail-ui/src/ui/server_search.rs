@@ -11,7 +11,6 @@
 //! line and account. What searches is a root context, [`ServerSearcher`], so a test can answer
 //! for a server.
 
-use super::press::on_primary;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::prelude::*;
@@ -19,6 +18,7 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
 use mail_client::prelude::Searched;
 use mail_domain::ThreadId;
+use mail_ui_kit::press::on_primary;
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -44,7 +44,7 @@ impl ServerSearcher {
             client
                 .net()
                 .search_server(account, input)
-                .map_err(crate::ui::remedy::told)
+                .map_err(mail_ui_kit::remedy::told)
         }))
     }
 
@@ -158,7 +158,7 @@ pub(super) fn start(mut asked: Signal<Vec<Asked>>, input: String, account: Accou
         });
     }
     let search = try_consume_context::<ServerSearcher>().unwrap_or_else(ServerSearcher::server);
-    let client = crate::ui::live::client();
+    let client = mail_ui_kit::live::client();
     let searched_for = account.clone();
     spawn(async move {
         let line = input.clone();
@@ -211,7 +211,7 @@ pub(super) fn ServerSearch(
     asked: Signal<Vec<Asked>>,
 ) -> Element {
     // Automatically, where the user turned it on: once per line and account.
-    let settings = crate::ui::prefs::use_settings();
+    let settings = mail_ui_kit::prefs::use_settings();
     let automatic = use_memo(move || {
         mail_client::server_search::Automatic::from(settings.read().search.server_automatically)
     });

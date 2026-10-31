@@ -35,8 +35,8 @@ use porter_provider::{Issuer, ProviderSpec};
 use tokio::sync::watch;
 
 use super::{Ask, Join};
-use crate::ui::motion::Follow;
-use crate::ui::space::Spaces;
+use mail_ui_kit::motion::{Deed, Follow};
+use mail_ui_kit::space::Spaces;
 
 /// Where an add-account entry goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,7 +370,7 @@ pub(in crate::ui) fn told(
     mode: &Mode,
     join: Join,
     outcome: &Result<String, SignInError>,
-) -> Option<(String, Follow)> {
+) -> Option<(String, Option<Retry>)> {
     Some(match outcome {
         Err(SignInError::Cancelled | SignInError::TimedOut) => return None,
         Ok(address) => {
@@ -378,17 +378,16 @@ pub(in crate::ui) fn told(
                 Mode::Add => format!("Added {address}"),
                 Mode::Again { .. } => format!("Signed in to {address}"),
             };
-            (text, Follow::Nothing)
+            (text, None)
         }
-        Err(SignInError::Declined) => ("Sign-in cancelled".to_owned(), Follow::Nothing),
+        Err(SignInError::Declined) => ("Sign-in cancelled".to_owned(), None),
         // Nothing to try again here: the window explains what is missing and offers the rest.
-        Err(why @ (SignInError::NoClient(_) | SignInError::NotMail(_))) => (
-            why.to_string(),
-            Follow::SignIn(Retry::Window(window_ask(mode, join))),
-        ),
+        Err(why @ (SignInError::NoClient(_) | SignInError::NotMail(_))) => {
+            (why.to_string(), Some(Retry::Window(window_ask(mode, join))))
+        }
         Err(why) => (
             why.to_string(),
-            Follow::SignIn(Retry::Direct {
+            Some(Retry::Direct {
                 issuer,
                 mode: mode.clone(),
                 join,
@@ -502,8 +501,11 @@ fn settle(
     {
         super::window::into_scope(&mut spaces, account, join);
     }
-    if let Some((text, follow)) = told(issuer, mode, join, outcome) {
-        crate::ui::motion::tell(text, follow);
+    if let Some((text, offer)) = told(issuer, mode, join, outcome) {
+        let follow = offer.map_or(Follow::Nothing, |again| {
+            Follow::Do(Deed::new(again.label(), move |_, _| retry(again.clone())))
+        });
+        mail_ui_kit::motion::tell(text, follow);
     }
 }
 
@@ -519,7 +521,7 @@ pub(in crate::ui) fn AddMenu(
     rsx! {
         Menu::<AddPick> {
             placement: MenuPlacement::default(),
-            anchor: crate::ui::menu::anchor_for(anchor, None),
+            anchor: mail_ui_kit::menu::anchor_for(anchor, None),
             items: add_menu(&redirects),
             onpick: move |pick: AddPick| {
                 picked(pick, join);
@@ -555,8 +557,8 @@ pub(in crate::ui) fn add_from(join: Join, mut open_menu: impl FnMut(Vec<(Issuer,
 /// redirect whose client is at hand, else in the window with the address typed. Call it from an
 /// event handler.
 pub(in crate::ui) fn again(address: String) {
-    let client = crate::ui::live::client();
-    let plan = crate::ui::data::account_rows(&client)
+    let client = mail_ui_kit::live::client();
+    let plan = mail_ui_kit::data::account_rows(&client)
         .into_iter()
         .find(|row| row.address == address)
         .map(|row| row.plan.auth);

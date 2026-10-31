@@ -7,8 +7,6 @@
 use super::List;
 use super::props::{Line, list_label};
 use crate::ui::menus::when_words;
-use crate::ui::press::on_primary;
-use crate::ui::view::Shell;
 use chrono::{DateTime, Local, Utc};
 use dioxus::prelude::*;
 use ds::components::overlays::inline_banner::InlineBanner;
@@ -16,6 +14,8 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::compose::addresses::join_addresses;
 use mail_domain::{Address, Draft};
+use mail_ui_kit::press::on_primary;
+use mail_ui_kit::view::Shell;
 use mail_ui_model::copy;
 
 /// `draft`, held to leave `at`.
@@ -33,7 +33,7 @@ pub(super) fn HeldPage(
         at,
         Utc::now(),
         &Local,
-        crate::ui::clock::hours(),
+        mail_ui_kit::clock::hours(),
     ));
     let lines = [
         (List::To, &draft.to),

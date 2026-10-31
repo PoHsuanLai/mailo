@@ -4,11 +4,11 @@
 
 use super::super::tests::opened_on;
 use crate::ui::fixtures::{Work, click, drain_seen, type_into, work};
-use crate::ui::space::{Spaces, stored};
-use crate::ui::view::PageId;
 use dioxus::dioxus_core::VirtualDom;
 use ds::style::appearance::theme::Theme;
 use ds::style::space::presets::PRESETS;
+use mail_ui_kit::space::{Spaces, stored};
+use mail_ui_kit::view::PageId;
 use mail_ui_model::copy;
 
 /// The Spaces as the file holds them now.

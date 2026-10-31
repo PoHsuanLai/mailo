@@ -10,7 +10,6 @@
 
 use super::super::checks::{TrustMark, trust_of, use_checks};
 use super::super::compose::{Line, List, list_label};
-use super::super::text::{address, from_name};
 use super::sender_face;
 use dioxus::prelude::*;
 use ds::components::content::avatar::{AvatarFace, AvatarSize};
@@ -18,6 +17,7 @@ use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use mail_domain::{Address, BlobId, Message, MessageId};
+use mail_ui_kit::text::{address, from_name};
 
 /// How much a message's header says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,7 +101,7 @@ pub(super) fn MessageHead(
             header { class: "msg-head", "data-detail": "compact",
                 Avatar { initial: face.initial, size: AvatarSize::Size22, tone: face.tone }
                 div { class: "msg-line",
-                    Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("truncate") }
+                    Label { text: name, style: LabelStyle::Headline, common: mail_ui_kit::common::classed("truncate") }
                     super::super::receipt::ReceiptMark { message: message.id }
                     {date}
                 }
@@ -240,12 +240,12 @@ fn full_head(
             }
             if let Some(to) = to {
                 Line { label: list_label(List::To), row: "to",
-                    Label { text: to, common: crate::ui::common::classed("truncate") }
+                    Label { text: to, common: mail_ui_kit::common::classed("truncate") }
                 }
             }
             if let Some(cc) = cc {
                 Line { label: list_label(List::Cc), row: "cc",
-                    Label { text: cc, common: crate::ui::common::classed("truncate") }
+                    Label { text: cc, common: mail_ui_kit::common::classed("truncate") }
                 }
             }
         }

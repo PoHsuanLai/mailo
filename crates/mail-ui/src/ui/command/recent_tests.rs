@@ -1,12 +1,12 @@
 use super::{SHOWN, draft_key, draft_of, rows, thread_key, thread_of};
 use crate::ui::fixtures::{acct_account, inbox_query, seeded, work};
-use crate::ui::space::SpaceId;
-use crate::ui::today::{Today, at};
 use chrono::{TimeZone, Utc};
 use mail_core::SqliteStore;
 use mail_core::Store;
 use mail_core::when::Clock;
 use mail_domain::{Address, Draft, DraftId, ThreadId};
+use mail_ui_kit::space::SpaceId;
+use mail_ui_kit::today::{Today, at};
 
 fn time(minute: i64) -> chrono::DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + minute * 60, 0).unwrap()

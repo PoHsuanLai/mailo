@@ -8,10 +8,10 @@ use mail_client::Client;
 
 use super::super::contacts::book::suggest;
 use super::super::contacts::groups::Offer;
-use super::super::menu::MenuItem;
 use super::float::people_rows;
 use super::page::{Float, List, Misread, Page, person};
 use mail_editor::Person;
+use mail_ui_kit::menu::MenuItem;
 
 /// Someone typed into `list`'s field. A comma commits what came before it.
 ///

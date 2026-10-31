@@ -14,12 +14,12 @@ use ds::host::position::{EDIT_KIND_ATTR, EDIT_NODE_ATTR, EditKind};
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
 
-use super::super::menu::Floating;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
 use mail_editor::{
     Align, Check, Layout, Mark, Node, Object, Op, ParaKind, Pos, Range, Run, TextSize,
 };
+use mail_ui_kit::menu::Floating;
 
 #[cfg(test)]
 thread_local! {

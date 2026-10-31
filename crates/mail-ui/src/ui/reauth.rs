@@ -13,10 +13,7 @@
 //! Graph, which signs it in again for Graph in the browser. Everything else a connection can
 //! suffer it retries by itself, and the sidebar foot's mark says while it does.
 
-use crate::ui::common::in_card;
-use crate::ui::data::account_rows;
 use crate::ui::fetching::{Fetching, Need, Needing};
-use crate::ui::press::{SheetClose, on_primary};
 use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelStyle};
 use ds::components::lists::row::row::Outline;
@@ -27,6 +24,9 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::fetch::Link;
 use mail_client::sync::report::Offer;
+use mail_ui_kit::common::in_card;
+use mail_ui_kit::data::account_rows;
+use mail_ui_kit::press::{SheetClose, on_primary};
 use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
@@ -148,7 +148,7 @@ pub(in crate::ui) fn use_reauth() -> Reauth {
     // The Add Account window signed an account in, or changed its settings: the store moves when
     // it does, and a window closed with nothing added leaves the sign-in waiting.
     use_effect(move || {
-        let now = crate::ui::live::moved();
+        let now = mail_ui_kit::live::moved();
         let Some(fetching) = fetching else { return };
         let mut signing = signing;
         let done: Vec<AccountId> = signing
@@ -230,7 +230,7 @@ impl Reauth {
     /// link.
     pub(in crate::ui) fn use_graph(self, account: AccountId, name: String) {
         let (Some(client), Some(fetching)) = (
-            crate::ui::live::try_client(),
+            mail_ui_kit::live::try_client(),
             try_consume_context::<Fetching>(),
         ) else {
             return;
@@ -276,9 +276,9 @@ impl Reauth {
                 Some(Err(why)) => copy::toasts::graph_refused(&name, &why),
                 None => copy::toasts::graph_refused(&name, ""),
             };
-            crate::ui::motion::tell(
+            mail_ui_kit::motion::tell(
                 said.trim_end().to_owned(),
-                crate::ui::motion::Follow::Nothing,
+                mail_ui_kit::motion::Follow::Nothing,
             );
         });
     }
@@ -287,7 +287,7 @@ impl Reauth {
     /// account is not asked about again while it is being signed in. Call it from an event
     /// handler.
     pub(in crate::ui) fn sign_in(self, address: &str, need: Need) {
-        let client = crate::ui::live::client();
+        let client = mail_ui_kit::live::client();
         let Some(account) = account_rows(&client)
             .into_iter()
             .find(|row| row.address == address)
@@ -315,7 +315,7 @@ impl Reauth {
         put_off.write().insert(account.clone());
         signing
             .write()
-            .insert(account, crate::ui::live::moved_peek());
+            .insert(account, mail_ui_kit::live::moved_peek());
     }
 }
 
@@ -325,7 +325,7 @@ pub(in crate::ui) fn ReauthPrompt() -> Element {
     let Some(reauth) = try_consume_context::<Reauth>() else {
         return rsx! {};
     };
-    let accounts = crate::ui::data::use_account_rows();
+    let accounts = mail_ui_kit::data::use_account_rows();
     let names: BTreeMap<AccountId, String> = accounts
         .read()
         .iter()
@@ -359,7 +359,7 @@ pub(in crate::ui) fn ReauthPrompt() -> Element {
                                 AlertRole::Cancel,
                                 EventHandler::new(move |()| reauth.later()),
                             )
-                            .with_common(crate::ui::sidebar::tagged("answer", "later")),
+                            .with_common(mail_ui_kit::common::tagged("answer", "later")),
                         ],
                     }
                 }
@@ -388,7 +388,7 @@ pub(in crate::ui) fn ReauthPrompt() -> Element {
                             AlertRole::Cancel,
                             EventHandler::new(move |()| reauth.later()),
                         )
-                        .with_common(crate::ui::sidebar::tagged("answer", "later")),
+                        .with_common(mail_ui_kit::common::tagged("answer", "later")),
                     ],
                 }
             }

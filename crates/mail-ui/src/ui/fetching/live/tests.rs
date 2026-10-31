@@ -194,7 +194,7 @@ impl Script {
 #[component]
 fn Probe() -> Element {
     // As `App` does: a client that reads here acts on what was committed from the first frame.
-    use_hook(crate::ui::live::moved_peek);
+    use_hook(mail_ui_kit::live::moved_peek);
     super::super::use_fetching();
     rsx! {}
 }
@@ -232,7 +232,7 @@ fn link(dom: &VirtualDom) -> Link {
 }
 
 fn moved(dom: &VirtualDom) -> u64 {
-    dom.in_scope(ScopeId::APP, crate::ui::live::moved_peek)
+    dom.in_scope(ScopeId::APP, mail_ui_kit::live::moved_peek)
 }
 
 fn is_live(dom: &VirtualDom) -> bool {
