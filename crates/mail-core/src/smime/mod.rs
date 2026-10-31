@@ -89,8 +89,8 @@ pub enum SmimeError {
 
 impl SmimeError {
     /// The step that mends this, when there is one: the front end words it.
-    pub fn remedy(&self) -> Option<crate::Remedy> {
-        use crate::Remedy;
+    pub fn remedy(&self) -> Option<mail_logic::remedy::Remedy> {
+        use mail_logic::remedy::Remedy;
         match self {
             SmimeError::NoCertFor(_) => Some(Remedy::ImportCertificate),
             SmimeError::NoOwnCert(_) => Some(Remedy::ImportOwnCertificate),

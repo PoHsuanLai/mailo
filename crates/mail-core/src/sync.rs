@@ -177,14 +177,14 @@ pub fn addresses(store: &SqliteStore) -> Vec<(AccountId, String)> {
 /// The remedy for an account that must sign in, again or for the first time: a pass that ended in
 /// [`Retry::NeedsReauth`] says so, and this says how that account signs in. An address the store
 /// does not know, or a plan it cannot read, is asked to sign in without saying how.
-pub fn sign_in_remedy(store: &SqliteStore, address: &str) -> crate::Remedy {
+pub fn sign_in_remedy(store: &SqliteStore, address: &str) -> mail_logic::remedy::Remedy {
     let with = configured(store)
         .or_log("the accounts could not be read to say how to sign in")
         .and_then(|all| all.into_iter().find(|account| account.address == address))
-        .map_or(crate::SignInWith::Unknown, |account| {
-            crate::SignInWith::of(&account.plan.auth)
+        .map_or(mail_logic::remedy::SignInWith::Unknown, |account| {
+            mail_logic::remedy::SignInWith::of(&account.plan.auth)
         });
-    crate::Remedy::SignIn {
+    mail_logic::remedy::Remedy::SignIn {
         address: address.to_owned(),
         with,
     }

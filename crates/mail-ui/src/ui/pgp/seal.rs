@@ -16,7 +16,7 @@ use std::sync::Arc;
 use super::said::{Said, Tone};
 use super::{Busy, Look, Unlock, cached, lookup, seams, short, unlock};
 use mail_client::message::Looks;
-use mail_client::password::Password;
+use mail_logic::password::Password;
 
 /// One message's protection, once it is known.
 ///

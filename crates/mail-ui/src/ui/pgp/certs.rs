@@ -29,9 +29,9 @@ use super::key_row::Confirm;
 use super::keys::{Done, Job, write};
 use super::{Busy, Seams, cert_short, whose};
 use crate::ui::copy::menus;
-use mail_client::password::Password;
 use mail_client::pgp::WithSecret;
 use mail_client::smime::SmimeError;
+use mail_logic::password::Password;
 
 /// The certificates in the order the sheet lists them: the user's own — those whose private
 /// key the keyring holds — first, then everyone else's, each group as the client orders it.

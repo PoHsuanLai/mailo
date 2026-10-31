@@ -16,7 +16,7 @@ use mail_mime::Parsed;
 
 use super::super::text::{AttachmentRow, Kept as Where};
 use super::{Said, Scheme, Tried, said, said_smime};
-use mail_client::password::Password;
+use mail_logic::password::Password;
 
 /// What a protected message's glyph in the reader's head says at a glance: the best thing that
 /// can be said for it. What went wrong is a banner of its own (`seal::Seal`), not a glyph.

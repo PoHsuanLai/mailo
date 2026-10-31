@@ -7,10 +7,10 @@
 
 use super::{Failed, Found, Gap, find_jmap, search};
 use crate::account::Setup;
-use crate::password::Password;
 use chrono::{DateTime, Utc};
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{HttpAuth, Incoming, Outgoing, Tls};
+use mail_logic::password::Password;
 use porter_sheet::{Hop, MailServers, Manual as Typed, Security};
 
 /// What looking an address up came to.

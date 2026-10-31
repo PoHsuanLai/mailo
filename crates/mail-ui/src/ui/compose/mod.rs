@@ -80,7 +80,7 @@ pub(in crate::ui) use templates::{every as every_template, template_rows};
 use super::press::on_primary;
 use crate::ui::copy;
 use crate::ui::view::Shell;
-use mail_client::password::Password;
+use mail_logic::password::Password;
 
 /// The fold after Send: quire's timer for the fade, and what happens once it has
 /// settled, which is that the page is taken away. Made by the page, so it belongs to it.

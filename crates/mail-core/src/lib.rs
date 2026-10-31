@@ -47,7 +47,6 @@ pub mod message;
 pub mod notify;
 pub mod offline;
 pub mod otp;
-pub mod password;
 pub mod pgp;
 pub mod profile;
 pub mod protect;
@@ -55,7 +54,6 @@ pub mod provider;
 pub mod query;
 pub mod receipt;
 pub mod recent;
-pub mod remedy;
 pub mod rules;
 pub mod saved_search;
 pub mod scope;
@@ -98,7 +96,8 @@ pub use mail_secrets::{
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{AccountPrefs, SqliteStore, Store, StoreError, Syncing};
-pub use remedy::{Remedy, SignInWith};
 
+#[cfg(test)]
+mod password_tests;
 #[cfg(test)]
 mod support_tests;

@@ -257,7 +257,7 @@ pub async fn add(
         }
         (manual, _) => (manual, env.password.clone()),
     };
-    let password = secret.map(crate::password::Password::new);
+    let password = secret.map(mail_logic::password::Password::new);
     add_receiving(
         store,
         Requested { manual, ..account },
@@ -277,7 +277,7 @@ pub async fn add(
 /// Where [`add_with_password`] gets a credential, and where it keeps one.
 pub struct Credentials<'a> {
     /// The password for a password account. `None`, or an empty one, is no password.
-    pub password: Option<&'a crate::password::Password>,
+    pub password: Option<&'a mail_logic::password::Password>,
     /// The OAuth clients earlier sign-ins recorded.
     pub saved: &'a ClientRegistry,
     /// Where the password or the sign-in's token is put.
@@ -1060,7 +1060,10 @@ mod tests {
         let err = add_address(&store, "someone@example.test").unwrap_err();
         assert!(err.to_string().contains("gmail.com"), "{err}");
         assert!(
-            matches!(err.remedy(), Some(crate::Remedy::NameServers { .. })),
+            matches!(
+                err.remedy(),
+                Some(mail_logic::remedy::Remedy::NameServers { .. })
+            ),
             "and the step is to name the servers: {err}"
         );
     }

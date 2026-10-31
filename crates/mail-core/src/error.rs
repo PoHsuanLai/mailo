@@ -6,8 +6,8 @@
 //! the `#[error(...)]` attributes, not in a `String` carried about, so a window can match on the
 //! variant and say it its own way.
 
-use crate::remedy::{Remedy, SignInWith};
 use mail_domain::{Retry, Retryable};
+use mail_logic::remedy::{Remedy, SignInWith};
 use std::path::{Path, PathBuf};
 
 /// What a failure carries as its cause, kept as the error it was rather than as its text.

@@ -12,12 +12,12 @@
 
 use super::looks::{Looks, Read, held};
 use crate::SigningStore;
-use crate::password::Password;
 use crate::pgp::{Ask, OpenPgp};
 use crate::protect::Seal;
 use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
+use mail_logic::password::Password;
 use mail_mime::Parsed;
 use mail_store::{SqliteStore, Store};
 

@@ -124,9 +124,6 @@ pub mod offline {
         Every, FILE_NAME, Keep, Kept, Remove, Window, change, damage, load, said, save,
     };
 }
-pub mod password {
-    pub use mail_core::password::Password;
-}
 pub mod pgp {
     pub use mail_core::pgp::{Ask, PgpError, Protected, WithSecret, no_passphrase};
     pub mod keys {
