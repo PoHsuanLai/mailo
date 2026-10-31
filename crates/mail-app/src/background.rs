@@ -29,9 +29,9 @@
 //! [`Schedule::Watch`]: mail_core::schedule::Schedule::Watch
 //! [`Daemon::Holding`]: mail_core::schedule::Daemon::Holding
 
+use mail_agent::ipc::watching::{Refused, Watching};
 use mail_cli::exec::AGAIN;
 use mail_core::SqliteStore;
-use mail_core::ipc::watching::{Refused, Watching};
 use mail_core::schedule::End;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -138,7 +138,7 @@ pub fn start(store: Arc<SqliteStore>, profile: mail_core::profile::ProfileId) {
 
 /// The lock for `profile`'s watch, when this process may have it now.
 fn claimed(profile: &mail_core::profile::ProfileId) -> Option<Watching> {
-    match step(mail_core::ipc::watching::claim(profile)) {
+    match step(mail_agent::ipc::watching::claim(profile)) {
         Step::Watch(held) => Some(held),
         Step::Wait => None,
     }
@@ -250,7 +250,7 @@ fn wait_to_look(
 /// A receiver that moves whenever the accounts that have a server, or how often each is
 /// fetched, have changed: read again after each write to the store, and every
 /// [`ACCOUNTS_EVERY`], by a thread of its own.
-fn follow_accounts(store: &Arc<SqliteStore>) -> mail_core::ipc::watching::Asked {
+fn follow_accounts(store: &Arc<SqliteStore>) -> mail_agent::ipc::watching::Asked {
     let (moved, accounts) = tokio::sync::watch::channel(0u64);
     let store = Arc::clone(store);
     let started = std::thread::Builder::new()

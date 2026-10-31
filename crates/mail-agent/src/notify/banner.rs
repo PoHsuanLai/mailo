@@ -4,11 +4,11 @@
 //!
 //! What the banner opens and whether it offers Reply ride along in its `userInfo` as text
 //! ([`info`]); a click is the key of what was pressed (the same keys the other platforms' servers
-//! report, [`super::act_for`]) with that text handed back ([`launch`]). Both are pure, so what a
+//! report, [`mail_core::notify::act_for`]) with that text handed back ([`launch`]). Both are pure, so what a
 //! click does is tested without a notification centre.
 
 use super::desktop::Launch;
-use super::{DEFAULT_ACTION, Notification, Opens, act_for};
+use mail_core::notify::{DEFAULT_ACTION, Notification, Opens, act_for};
 use mail_domain::ThreadId;
 use porter_core::AccountId;
 use std::collections::HashMap;
@@ -104,7 +104,7 @@ pub const CONTENT: &str = DEFAULT_ACTION;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::notify::{ARCHIVE_ACTION, Act, REPLY_ACTION};
+    use mail_core::notify::{ARCHIVE_ACTION, Act, REPLY_ACTION};
 
     fn note(opens: Opens, reply: bool) -> Notification {
         Notification {

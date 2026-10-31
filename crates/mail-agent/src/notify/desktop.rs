@@ -37,7 +37,7 @@
 //!   all, so the registered PowerShell id is the one that always works. No activation token: it
 //!   is a Wayland and X11 notion.
 
-use super::{Act, Notification, Notifier, Opens, Sound};
+use mail_core::notify::{self as core, Act, Notification, Notifier, Opens, Sound};
 #[cfg(windows)]
 use notify_rust::NotificationResponse;
 #[cfg(windows)]
@@ -175,7 +175,7 @@ impl Notifier for Desktop {
 
 impl Desktop {
     /// [`show`](Notifier::show) with `sound`: what a notifier that reads the person's settings as
-    /// each is said ([`super::Interest`]) chooses.
+    /// each is said ([`core::Interest`]) chooses.
     #[cfg(not(target_os = "macos"))]
     pub fn show_with(&self, notification: &Notification, sound: Sound) {
         if self.reach == Reach::Nowhere {
@@ -199,7 +199,7 @@ impl Desktop {
     }
 
     /// [`show`](Notifier::show) with `sound`: what a notifier that reads the person's settings as
-    /// each is said ([`super::Interest`]) chooses.
+    /// each is said ([`core::Interest`]) chooses.
     #[cfg(target_os = "macos")]
     pub fn show_with(&self, notification: &Notification, sound: Sound) {
         if self.reach == Reach::Nowhere {
@@ -310,7 +310,7 @@ impl Launch {
 pub fn answer(response: &NotificationResponse, opens: &Opens, reply: bool) -> Option<Launch> {
     let act = match response {
         NotificationResponse::Default => Some(Act::Open),
-        NotificationResponse::Action(action) => super::act_for(action, opens, reply),
+        NotificationResponse::Action(action) => core::act_for(action, opens, reply),
         NotificationResponse::Reply(_) | NotificationResponse::Closed(_) => None,
     }?;
     Some(Launch {
@@ -374,7 +374,7 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification, sound: Sound)
     use notify_rust::Hint;
     out.body(&escape(&n.body))
         .icon("mailo")
-        .action(super::DEFAULT_ACTION, "Open")
+        .action(core::DEFAULT_ACTION, "Open")
         // The freedesktop category for this event, which servers use to pick a sound and to
         // group.
         .hint(Hint::Category("email.arrived".to_owned()))
@@ -421,10 +421,10 @@ fn banner(n: &Notification, sound: Sound) -> super::banner::Banner {
     if matches!(n.opens, Opens::Thread(_)) {
         out.main_button = Some("Open".to_owned());
         out.more_buttons
-            .push((super::ARCHIVE_ACTION.to_owned(), "Archive".to_owned()));
+            .push((core::ARCHIVE_ACTION.to_owned(), "Archive".to_owned()));
         if n.reply {
             out.more_buttons
-                .push((super::REPLY_ACTION.to_owned(), "Reply".to_owned()));
+                .push((core::REPLY_ACTION.to_owned(), "Reply".to_owned()));
         }
     }
     out
@@ -434,10 +434,10 @@ fn banner(n: &Notification, sound: Sound) -> super::banner::Banner {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn buttons(out: &mut notify_rust::Notification, n: &Notification) {
     if matches!(n.opens, Opens::Thread(_)) {
-        out.action(super::ARCHIVE_ACTION, "Archive");
+        out.action(core::ARCHIVE_ACTION, "Archive");
     }
     if n.reply {
-        out.action(super::REPLY_ACTION, "Reply");
+        out.action(core::REPLY_ACTION, "Reply");
     }
 }
 
@@ -494,7 +494,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_banner_is_posted_by_the_poster_the_app_handed_in() {
-        use super::super::banner::{Banner, Posts};
+        use crate::notify::banner::{Banner, Posts};
         use std::sync::Mutex;
 
         #[derive(Debug, Default)]

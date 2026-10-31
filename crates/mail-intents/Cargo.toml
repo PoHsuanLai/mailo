@@ -16,7 +16,7 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 # dependency stays.
 
 [dependencies]
-mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
+mail-core = { workspace = true, features = ["pdf", "keyring"] }
 mail-domain.workspace = true
 mail-store.workspace = true
 mail-client.workspace = true

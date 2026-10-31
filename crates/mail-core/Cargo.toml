@@ -17,20 +17,15 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 
 [features]
 # On for a plain `cargo test -p mail-core`; `mail-app` names the ones it wants, and a consumer of
-# the logic alone (`default-features = false`) gets none of the desktop's adapters. Nothing that
+# the logic alone (`default-features = false`) gets none of the optional ones. Nothing that
 # reaches the platform's keyring is default: that is `keyring` (and `oo7`), which the program that
 # wants it names.
-default = ["desktop", "pdf"]
+default = ["pdf"]
 # The platform's secret stores for account secrets and signing keys, in mail-secrets. Without it
 # the caller hands in its own `AccountSecrets` and `SigningStore`.
 keyring = ["mail-secrets/keyring"]
 # On Linux, the account secrets in the Secret Service through oo7 (`mail-secrets`' `oo7`).
 oo7 = ["mail-secrets/oo7"]
-# The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
-# `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface; on
-# macOS the banners are the app's, handed in through `notify::banner::Posts`. Without it a watch
-# announces through whatever `Notifier` it is handed.
-desktop = ["dep:notify-rust", "dep:zbus"]
 # A PDF attachment's pages for the preview (`preview.rs`), by pdfrum. Without it a PDF has no
 # preview ("could not be read") and everything else previews as before.
 pdf = ["dep:pdfrum"]
@@ -47,8 +42,6 @@ porter-discover.workspace = true
 # The HTTP seam porter-discover asks through (`discover.rs` names it); no client, no I/O.
 porter-http.workspace = true
 latchkey.workspace = true
-# The door's stream, for its receive timeout: the version latchkey's own `Stream` is.
-interprocess = "2"
 mail-domain.workspace = true
 mail-store.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
@@ -104,22 +97,6 @@ rand = "0.8"
 # A PDF attachment's pages (`preview.rs`): quire rasterises only a first page. The same version
 # quire names, so the tree holds one pdfrum.
 pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"], optional = true }
-
-# The notification server's `ActivationToken`, `ActionInvoked` and `NotificationClosed` signals
-# (`notify/click.rs`), which `notify-rust` does not surface. Blocking, on a thread of its own, and
-# without the `tokio` feature, as everywhere in this tree (CONSUMING.md section 1). Already in the
-# lock through notify-rust, at this version and with these (its default) features. MIT.
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-zbus = { version = "5.19", optional = true }
-
-# Desktop notifications for new mail (`notify/desktop.rs`), one API over each platform's own: the
-# freedesktop interface on the session bus (through zbus, already in the lock through the
-# keyring's Secret Service store) and toasts on Windows (tauri-winrt-notification). MIT OR
-# Apache-2.0, and so are both backends. Not on macOS: notify-rust's backend there
-# (mac-notification-sys) waits on a thread per banner and polls the centre for each to go, which
-# never ends for a banner nobody clears; the app posts them instead (`notify::banner::Posts`).
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-notify-rust = { version = "4.18", optional = true }
 
 [dev-dependencies]
 # The values a test starts from (`mail_domain::testing`): the program never has them.

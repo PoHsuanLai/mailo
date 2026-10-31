@@ -5111,6 +5111,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-agent"
+version = "0.1.0"
+dependencies = [
+ "interprocess",
+ "latchkey",
+ "log",
+ "mail-core",
+ "mail-store",
+ "mailo-domain",
+ "notify-rust",
+ "porter-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+ "zbus",
+]
+
+[[package]]
 name = "mail-app"
 version = "0.1.0"
 dependencies = [
@@ -5128,6 +5149,7 @@ dependencies = [
  "image",
  "latchkey",
  "log",
+ "mail-agent",
  "mail-cli",
  "mail-client",
  "mail-core",
@@ -5177,6 +5199,7 @@ dependencies = [
  "chrono",
  "image",
  "log",
+ "mail-agent",
  "mail-client",
  "mail-core",
  "mail-edge",
@@ -5209,6 +5232,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "log",
+ "mail-agent",
  "mail-client",
  "mail-core",
  "mail-runtime",
@@ -5239,7 +5263,6 @@ dependencies = [
  "chrono",
  "futures-util",
  "image",
- "interprocess",
  "latchkey",
  "log",
  "mail-engine",
@@ -5255,7 +5278,6 @@ dependencies = [
  "mailo-pim",
  "mailo-proto",
  "mailo-reader",
- "notify-rust",
  "nucleo-matcher",
  "pdfrum",
  "porter-capability",
@@ -5279,7 +5301,6 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "uuid",
- "zbus",
  "zeroize",
 ]
 
@@ -5524,6 +5545,7 @@ dependencies = [
  "ds-shell",
  "image",
  "log",
+ "mail-agent",
  "mail-appkit",
  "mail-client",
  "mail-core",

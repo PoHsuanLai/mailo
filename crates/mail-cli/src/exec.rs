@@ -187,8 +187,8 @@ fn ask(question: &str) -> Option<String> {
 }
 
 /// What the daemon answered, when it was not the answer asked for.
-fn answered(response: &mail_core::ipc::wire::Response) -> String {
-    use mail_core::ipc::wire::Response;
+fn answered(response: &mail_agent::ipc::wire::Response) -> String {
+    use mail_agent::ipc::wire::Response;
     match response {
         Response::Pong { pid, version } => format!("daemon {version} answering, pid {pid}"),
         Response::Started => "the daemon has started a sync".to_owned(),
@@ -264,7 +264,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     // they need the store by `Arc`, which `super::run` has not.
     match &command {
         Command::Daemon { stop: false } => {
-            let ended = mail_core::ipc::daemon::serve(
+            let ended = mail_agent::ipc::daemon::serve(
                 store,
                 std::sync::Arc::new(|store| {
                     let mail = mail_edge::mail(&store).with_junk(mail_ui::settings::junk_policy());
@@ -274,16 +274,16 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
                     }
                 }),
                 |listening| match listening {
-                    mail_core::ipc::daemon::Listening::Socket(path) => {
+                    mail_agent::ipc::daemon::Listening::Socket(path) => {
                         println!("listening on {}", path.display());
                     }
-                    mail_core::ipc::daemon::Listening::Endpoint(endpoint) => {
+                    mail_agent::ipc::daemon::Listening::Endpoint(endpoint) => {
                         println!("listening on {endpoint}");
                     }
                 },
             )
             .map_err(super::remedy::error)?;
-            if ended == mail_core::ipc::daemon::Ended::Stopped {
+            if ended == mail_agent::ipc::daemon::Ended::Stopped {
                 println!("stopped");
             }
             return Ok(());
@@ -293,26 +293,26 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             // `reach`: "there was nothing to stop" is a success, not a reason to spawn a daemon
             // and immediately ask it to leave.
             let Some(mut daemon) =
-                mail_core::ipc::client::connect().map_err(|why| why.to_string())?
+                mail_agent::ipc::client::connect().map_err(|why| why.to_string())?
             else {
                 println!("no daemon is running");
                 return Ok(());
             };
             match daemon
-                .ask(mail_core::ipc::wire::Request::Shutdown)
+                .ask(mail_agent::ipc::wire::Request::Shutdown)
                 .map_err(|why| why.to_string())?
             {
-                mail_core::ipc::wire::Response::Stopping => println!("stopped"),
+                mail_agent::ipc::wire::Response::Stopping => println!("stopped"),
                 other => return Err(answered(&other)),
             }
             return Ok(());
         }
         Command::Ping => {
-            match mail_core::ipc::client::reach()
-                .and_then(|mut d| d.ask(mail_core::ipc::wire::Request::Ping))
+            match mail_agent::ipc::client::reach()
+                .and_then(|mut d| d.ask(mail_agent::ipc::wire::Request::Ping))
                 .map_err(|why| why.to_string())?
             {
-                pong @ mail_core::ipc::wire::Response::Pong { .. } => {
+                pong @ mail_agent::ipc::wire::Response::Pong { .. } => {
                     println!("{}", answered(&pong))
                 }
                 other => return Err(answered(&other)),
@@ -381,16 +381,16 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         // exit) asks again every [`AGAIN`] and takes over once that one ends, as at ⌘Q
         // of mailo.app. The settings are read once it watches, not before it waited.
         let watching = loop {
-            match mail_core::ipc::watching::claim(mail_edge::profile().id()) {
+            match mail_agent::ipc::watching::claim(mail_edge::profile().id()) {
                 Ok(held) => break held,
-                Err(mail_core::ipc::watching::Refused::AlreadyWatching) if *wait => {
+                Err(mail_agent::ipc::watching::Refused::AlreadyWatching) if *wait => {
                     std::thread::sleep(AGAIN);
                 }
-                Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
+                Err(mail_agent::ipc::watching::Refused::AlreadyWatching) => {
                     println!("a mailo watch is already running; leaving it to it");
                     return Ok(());
                 }
-                Err(mail_core::ipc::watching::Refused::Failed(why)) => {
+                Err(mail_agent::ipc::watching::Refused::Failed(why)) => {
                     return Err(format!(
                         "can't tell whether a mailo watch is running: {why}"
                     ));
@@ -467,7 +467,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_core::ipc::wire::Response;
+    use mail_agent::ipc::wire::Response;
 
     #[test]
     fn help_and_the_version_are_answered_before_any_store() {

@@ -145,6 +145,7 @@ mail-store = { workspace = true, features = ["testing"] }
 mail-client = { workspace = true, features = ["testing"] }
 # The doubles at the runtime's seams (`mail_core::testing`): the program never has them.
 mail-core = { workspace = true, features = ["testing"] }
+mail-agent = { workspace = true, features = ["desktop"] }
 porter-secrets = { workspace = true, features = ["testing"] }
 # Read back by the window's own tests (reader blocks, print, PGP/S-MIME composer); not used by the
 # window itself, which gets them from `mail-core` and quire.

@@ -9,8 +9,8 @@
 //! descriptors.)
 
 use super::wire::{self, Mismatch, Request, Response};
-use crate::error::CoreError;
 use interprocess::local_socket::traits::Stream as _;
+use mail_core::CoreError;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::time::Duration;
 

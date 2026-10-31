@@ -231,8 +231,10 @@ pub enum CoreError {
     DaemonSilent,
     #[error("a daemon is already running")]
     DaemonRunning,
-    #[error(transparent)]
-    Wire(#[from] crate::ipc::wire::Mismatch),
+    /// What the daemon's wire said was wrong with a message (`mail_agent::ipc::wire::Mismatch`),
+    /// in its words: the crate that speaks the wire turns its mismatch into this.
+    #[error("{0}")]
+    Wire(String),
     #[error(transparent)]
     Door(#[from] latchkey::Error),
 

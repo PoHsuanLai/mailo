@@ -3,7 +3,7 @@
 //! Finding it is [`latchkey`]'s; this is what is said once the door opens.
 
 use super::wire::{self, Request, Response};
-use crate::error::CoreError;
+use mail_core::CoreError;
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 

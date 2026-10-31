@@ -7,7 +7,7 @@
 
 use super::door::{self, Answer};
 use super::wire::{Request, Response};
-use crate::error::CoreError;
+use mail_core::CoreError;
 use mail_store::SqliteStore;
 use std::path::PathBuf;
 use std::sync::Arc;

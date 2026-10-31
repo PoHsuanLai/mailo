@@ -11,7 +11,7 @@
 //! it to install a new binary — so the first thing a new client meets is an old daemon. It has
 //! to be told, not left to misparse a field.
 
-use crate::error::CoreError;
+use mail_core::CoreError;
 use serde::{Deserialize, Serialize};
 
 /// The version of everything below. Bump it when a variant changes meaning; adding a variant
@@ -118,4 +118,10 @@ pub enum Mismatch {
     Version { theirs: u32, ours: u32 },
     #[error("unreadable message: {0}")]
     Unreadable(String),
+}
+
+impl From<Mismatch> for CoreError {
+    fn from(mismatch: Mismatch) -> Self {
+        CoreError::Wire(mismatch.to_string())
+    }
 }

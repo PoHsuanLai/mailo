@@ -11,7 +11,6 @@ use super::report::{Hooks, PassEnd, Progress, Watched, outcome};
 use super::{Announce, configured, live};
 use crate::error::CoreError;
 use crate::fetch::{Event, Trigger};
-use crate::ipc::watching::Asked;
 use crate::junk::Policy;
 use crate::mail::{Mail, SyncOps};
 use crate::notify::{Notifier, Whom};
@@ -25,6 +24,11 @@ use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::watch;
+
+/// What a watch's scheduler listens on for a pass someone asked for at the watch's door
+/// (`mail_agent::ipc::watching::Watching::asked`): it moves once for each request.
+pub type Asked = watch::Receiver<u64>;
 
 /// What a watch says of a pass that has ended, and what it announces of it.
 ///
@@ -104,7 +108,7 @@ impl SyncOps<'_> {
     /// each ends: a handle's own setting is the one it was built with, which a watch that runs
     /// for days would keep for as long.
     ///
-    /// `asked` is the watch's door ([`crate::ipc::watching::Watching::asked`]): each time it
+    /// `asked` is the watch's door (`mail_agent::ipc::watching::Watching::asked`): each time it
     /// moves, every account is asked for a pass now, as the window's Sync asks its own.
     pub async fn watch(
         &self,

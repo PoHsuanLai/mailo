@@ -4,7 +4,7 @@
 //! starts one moved to `latchkey` along with their tests, because none of it was about mail —
 //! and keeping a second copy here would mean two places to fix the next race found in it.
 
-use mail_core::ipc::wire;
+use mail_agent::ipc::wire;
 use wire::{Mismatch, Request, Response};
 
 #[test]
@@ -104,7 +104,7 @@ fn knock(agent: &latchkey::Agent, line: &str) -> Response {
 /// answering everyone else. Held connections were what ran a watch out of file descriptors.
 #[test]
 fn a_watch_answers_a_subscription_from_an_older_window_and_keeps_nothing() {
-    use mail_core::ipc::{client, watching};
+    use mail_agent::ipc::{client, watching};
     let dir = tempfile::tempdir().unwrap();
     let agent = scratch(dir.path(), "mailo-watch-test-old-window");
     let _watching = watching::claim_at(&agent).unwrap();
@@ -146,7 +146,7 @@ fn a_watch_answers_a_subscription_from_an_older_window_and_keeps_nothing() {
 /// Stopping is still refused there.
 #[test]
 fn a_watch_starts_a_pass_when_asked_and_is_not_stopped_through_its_door() {
-    use mail_core::ipc::{client, watching};
+    use mail_agent::ipc::{client, watching};
     let dir = tempfile::tempdir().unwrap();
     let agent = scratch(dir.path(), "mailo-watch-test-asked");
     let watching = watching::claim_at(&agent).unwrap();

@@ -11,7 +11,7 @@ emits, and where each part is tested. Nothing here needs the shell to know anyth
 a window. `dist/install.sh` installs it into `/etc/systemd/user` and enables it for every user's
 graphical session (`systemctl --global enable`); `dist/uninstall.sh` reverses it.
 
-`mailo watch` takes a per-user lock (`mail_core::ipc::watching`, a latchkey file lock under the
+`mailo watch` takes a per-user lock (`mail_agent::ipc::watching`, a latchkey file lock under the
 name `mailo-watch`), and a second one exits 0 saying so: a person typing it in a terminal while the
 unit runs must not make every message announce twice, and a unit that starts while one runs by
 hand must not restart in a loop.
@@ -20,10 +20,10 @@ hand must not restart in a loop.
 
 | To | How | Where |
 | --- | --- | --- |
-| The notification server | `org.freedesktop.Notifications.Notify`: app name `mailo`, icon `mailo`, summary the sender, body the subject, action `default`, hints `category=email.arrived`, `desktop-entry=org.quire.Mail`, `x-mailo-thread`, `x-mailo-account` | `mail-core/src/notify/desktop.rs` |
+| The notification server | `org.freedesktop.Notifications.Notify`: app name `mailo`, icon `mailo`, summary the sender, body the subject, action `default`, hints `category=email.arrived`, `desktop-entry=org.quire.Mail`, `x-mailo-thread`, `x-mailo-account` | `mail-agent/src/notify/desktop.rs` |
 | The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-cli/src/session.rs`, `mail-os/src/launcher/` |
 
-With a watch running, the window leaves the launcher count to it (`mail_core::ipc::watching::running`):
+With a watch running, the window leaves the launcher count to it (`mail_agent::ipc::watching::running`):
 a dock forgets a count when its sender leaves the bus, so a count sent by a window would vanish when
 it closed. With no watch, the window shows the count of its own Space, as before.
 
@@ -170,7 +170,7 @@ keyring (`mail-secrets/src/signing_store.rs`, compiled out of release builds).
 
 The window and the watch would be two writers on one SQLite file, and two writers sometimes end a
 pass with `database is locked` (`busy_timeout` is five seconds). So where a watch runs
-(`mail_core::ipc::watching::running`, asked each time, since a watch may start or stop while a window
+(`mail_agent::ipc::watching::running`, asked each time, since a watch may start or stop while a window
 is open) the window leaves scheduled fetching to it and keeps only what a person asks for
 (`mail-ui/src/ui/fetching/delegate.rs`):
 

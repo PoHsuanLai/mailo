@@ -17,7 +17,8 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 # is dispatched by `mail-app`.
 
 [dependencies]
-mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
+mail-core = { workspace = true, features = ["pdf", "keyring"] }
+mail-agent = { workspace = true, features = ["desktop"] }
 mail-domain.workspace = true
 mail-store.workspace = true
 mail-client.workspace = true

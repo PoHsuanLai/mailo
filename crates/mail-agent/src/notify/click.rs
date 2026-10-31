@@ -13,7 +13,7 @@
 //! must not make a week-long watch grow without end, so the oldest notification is forgotten
 //! first and a click on it opens nothing.
 
-use super::{Act, Opens, act_for};
+use mail_core::notify::{Act, Opens, act_for};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 

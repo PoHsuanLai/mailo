@@ -24,7 +24,7 @@
 //! because "a loopback listener is reachable by anything on the machine". A socket in a
 //! directory only this user can read needs no such argument — the filesystem is the
 //! authentication, which is why `latchkey` makes that directory `0700`.
-use crate::error::CoreError;
+use mail_core::CoreError;
 
 pub mod client;
 pub mod daemon;

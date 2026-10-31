@@ -15,8 +15,11 @@ mail-runtime unwrap_or_default 9
 mail-engine let_underscore 2
 mail-engine ok 0
 mail-engine unwrap_or_default 2
+mail-agent let_underscore 0
+mail-agent ok 4
+mail-agent unwrap_or_default 0
 mail-core let_underscore 0
-mail-core ok 31
+mail-core ok 27
 mail-core unwrap_or_default 15
 mail-proto let_underscore 0
 mail-proto ok 11
