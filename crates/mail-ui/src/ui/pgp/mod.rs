@@ -13,7 +13,7 @@
 //! the same blocks, and never written down.
 //!
 //! A passphrase typed to unlock a key, or a PKCS#12 file's password, is a
-//! [`Password`](mail_client::password::Password): moved from the field into the one call that needs
+//! [`Password`](mail_logic::password::Password): moved from the field into the one call that needs
 //! it, and dropped with it. It is never in a signal, the [`Shell`](crate::ui::view::Shell), the
 //! client, a file or a log.
 

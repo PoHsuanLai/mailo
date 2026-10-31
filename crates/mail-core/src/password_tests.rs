@@ -1,10 +1,9 @@
-//! The password type refuses to be printed, and `add_with_password` puts it in the credential
-//! store it is handed and nowhere else.
+//! `add_with_password` puts the password in the credential store it is handed and nowhere else.
 
-use super::Password;
 use crate::Environment;
 use crate::account::{Credentials, Outcome, add_with_password};
 use crate::support_tests::{now, pop3};
+use mail_logic::password::Password;
 use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
@@ -12,25 +11,6 @@ use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 
 const SECRET: &str = "hunter2-correct-horse";
-
-#[test]
-fn debug_never_prints_the_password() {
-    let password = Password::new(SECRET.to_owned());
-    for shown in [format!("{password:?}"), format!("{password:#?}")] {
-        assert!(!shown.contains("hunter2"), "{shown}");
-        assert!(shown.contains("redacted"), "{shown}");
-    }
-    // Inside something that derives Debug, too: that is where a stray `{:?}` usually is.
-    let held = Some(password);
-    assert!(!format!("{held:?}").contains("hunter2"));
-}
-
-#[test]
-fn an_empty_password_says_so_and_nothing_else() {
-    let password = Password::default();
-    assert!(password.is_empty());
-    assert_eq!(format!("{password:?}"), "Password(<empty>)");
-}
 
 fn account_of(store: &SqliteStore, address: &str) -> AccountId {
     store

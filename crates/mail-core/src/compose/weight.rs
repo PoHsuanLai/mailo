@@ -14,9 +14,10 @@ use mail_domain::{AccountPlan, Draft};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 
-use super::pictures::{self, PictureSize};
+use super::pictures;
 use super::submit;
 use crate::error::Logged;
+use mail_logic::picture::PictureSize;
 
 /// The limit a message is measured against when its server has said none: the 25 MB of
 /// attachments Gmail, Outlook.com and most others refuse past.

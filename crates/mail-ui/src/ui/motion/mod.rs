@@ -25,9 +25,9 @@ use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
 use mail_client::Client;
 use mail_client::act::{Keep, TookBack};
-use mail_client::undo::{Undo, UndoHandle};
 use mail_client::{Acted, Destroy, Perform, TakeBack, Ticket};
 use mail_domain::*;
+use mail_logic::undo::{Undo, UndoHandle};
 
 /// What the toast says, and which op it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -309,7 +309,7 @@ fn performed(
     motion: Option<Motion>,
     shell: Signal<Shell>,
     done: Vec<(ThreadId, Op, Undo)>,
-    hours: mail_client::when::Clock,
+    hours: mail_logic::when::Clock,
     instead: Option<String>,
 ) -> (usize, Option<UndoHandle>) {
     let count = done.len();

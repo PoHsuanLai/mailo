@@ -1,7 +1,7 @@
 //! A password on its way to the keyring, and nowhere else.
 //!
 //! Held only between the moment it is typed (or read from `MAILO_PASSWORD`) and the moment
-//! [`crate::account::add_with_password`] hands it to the keyring. It is not `Clone`, so it
+//! `mail_core::account::add_with_password` hands it to the keyring. It is not `Clone`, so it
 //! cannot quietly be copied into a second place; its `Debug` is written by hand, so a stray
 //! `{:?}` in a log line, a panic message or a test failure cannot print it; there is no
 //! `Display` and no `serde`, so it cannot be shown or saved by accident; and its bytes are
@@ -48,5 +48,27 @@ impl fmt::Debug for Password {
 }
 
 #[cfg(test)]
-#[path = "password_tests.rs"]
-mod tests;
+mod tests {
+    use super::Password;
+
+    const SECRET: &str = "hunter2-correct-horse";
+
+    #[test]
+    fn debug_never_prints_the_password() {
+        let password = Password::new(SECRET.to_owned());
+        for shown in [format!("{password:?}"), format!("{password:#?}")] {
+            assert!(!shown.contains("hunter2"), "{shown}");
+            assert!(shown.contains("redacted"), "{shown}");
+        }
+        // Inside something that derives Debug, too: that is where a stray `{:?}` usually is.
+        let held = Some(password);
+        assert!(!format!("{held:?}").contains("hunter2"));
+    }
+
+    #[test]
+    fn an_empty_password_says_so_and_nothing_else() {
+        let password = Password::default();
+        assert!(password.is_empty());
+        assert_eq!(format!("{password:?}"), "Password(<empty>)");
+    }
+}

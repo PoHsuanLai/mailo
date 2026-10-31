@@ -92,8 +92,8 @@ pub enum PgpError {
 
 impl PgpError {
     /// The step that mends this, when there is one: the front end words it.
-    pub fn remedy(&self) -> Option<crate::Remedy> {
-        use crate::Remedy;
+    pub fn remedy(&self) -> Option<mail_logic::remedy::Remedy> {
+        use mail_logic::remedy::Remedy;
         match self {
             PgpError::NoKeyFor(_) => Some(Remedy::FindPgpKey),
             PgpError::NoOwnKey(address) => Some(Remedy::MakePgpKey {

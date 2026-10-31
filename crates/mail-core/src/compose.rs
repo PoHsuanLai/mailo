@@ -5,7 +5,7 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
-use crate::error::{CoreError, Logged, TimeError};
+use crate::error::{CoreError, Logged};
 use crate::pgp::OpenPgp;
 use crate::protect::Seal;
 use crate::smime::Smime;
@@ -13,6 +13,8 @@ use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_editor::{FORWARDED, plain_to_flowed};
+use mail_logic::picture::PictureSize;
+use mail_logic::snooze::TimeError;
 use mail_mime::posting;
 use mail_net::Failure;
 use mail_secrets::CredentialError;
@@ -34,7 +36,7 @@ pub use modes::{
     Answer, Quote, Redirected, Saying, draft_again, draft_answer, draft_answer_in, list_post,
     redirect, withdraw_redirect,
 };
-pub use pictures::{PictureSize, sized};
+pub use pictures::sized;
 pub use weight::{
     Fit, Measure, Picture, Said, SendLimit, USUAL_LIMIT, Weight, can_ask_delivery_report, fit,
     send_limit, weigh,
@@ -945,11 +947,11 @@ where
     out.push_str(&format!(
         "Date: {}\r\n",
         // Twenty-four hours, as the attribution line in [`quoted`] is written.
-        crate::when::stamp(
+        mail_logic::when::stamp(
             original.date,
             zone,
-            crate::when::Stamp::Quote,
-            crate::when::Clock::H24
+            mail_logic::when::Stamp::Quote,
+            mail_logic::when::Clock::H24
         )
     ));
     out.push_str(&format!("Subject: {}\r\n", original.subject));
@@ -1241,11 +1243,11 @@ where
     // Twenty-four hours, whatever this person's clock: the line is read in someone else's
     // mailbox, by a reader whose clock is not known here, and it is the one reading nobody takes
     // for the other half of the day.
-    let when = crate::when::stamp(
+    let when = mail_logic::when::stamp(
         original.date,
         zone,
-        crate::when::Stamp::Quote,
-        crate::when::Clock::H24,
+        mail_logic::when::Stamp::Quote,
+        mail_logic::when::Clock::H24,
     );
     let mut out = String::new();
     if !body.is_empty() {
@@ -1404,7 +1406,7 @@ pub struct Scheduled {
     pub at: DateTime<Utc>,
 }
 
-/// Queue a draft to leave at `phrase`, in the words [`crate::snooze::snooze_until`] takes:
+/// Queue a draft to leave at `phrase`, in the words [`mail_logic::snooze::snooze_until`] takes:
 /// `tomorrow`, `tonight`, `+2h`, `2026-09-25 09:00`.
 pub fn send_later(
     store: &SqliteStore,
@@ -1424,7 +1426,7 @@ pub fn send_later_with(
     phrase: &str,
     now: DateTime<Utc>,
 ) -> Result<Scheduled, SendError> {
-    let at = crate::snooze::snooze_until(phrase, now, &Local)?;
+    let at = mail_logic::snooze::snooze_until(phrase, now, &Local)?;
     let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
     Ok(Scheduled { draft, post, at })
 }
@@ -1440,7 +1442,7 @@ pub fn send_later_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let at = crate::snooze::snooze_until(phrase, now, zone)?;
+    let at = mail_logic::snooze::snooze_until(phrase, now, zone)?;
     let (draft, post) = queue(store, draft, Leaves::At(at), now)?;
     Ok(Scheduled { draft, post, at })
 }
@@ -1515,11 +1517,11 @@ fn queue_inner(
         return Err(CoreError::SendTimePassed {
             // The command line's refusal (it names `--at`); the window refuses a time that
             // has passed before it gets here, in its own words.
-            stamp: crate::when::stamp(
+            stamp: mail_logic::when::stamp(
                 at,
                 &Local,
-                crate::when::Stamp::Full,
-                crate::when::Clock::H24,
+                mail_logic::when::Stamp::Full,
+                mail_logic::when::Clock::H24,
             ),
         });
     }

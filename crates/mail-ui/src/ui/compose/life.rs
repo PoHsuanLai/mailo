@@ -5,9 +5,10 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_client::Client;
-use mail_client::compose::{Leaves, PictureSize};
+use mail_client::compose::Leaves;
 use mail_client::prelude::SigningStore;
 use mail_domain::*;
+use mail_logic::picture::PictureSize;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -326,7 +327,7 @@ pub(in crate::ui) struct Going {
 pub(in crate::ui) struct Dated<'a, Tz> {
     pub now: DateTime<Utc>,
     pub zone: &'a Tz,
-    pub clock: mail_client::when::Clock,
+    pub clock: mail_logic::when::Clock,
 }
 
 /// Send, if the guards allow it: no recipients shakes the To row, a mentioned attachment with

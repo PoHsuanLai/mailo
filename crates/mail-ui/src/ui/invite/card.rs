@@ -102,7 +102,7 @@ pub(in crate::ui) fn card_of<Z: TimeZone>(
     invite: &Invite,
     answered: Option<&InviteAnswer>,
     zone: &Z,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Card {
     let when = say_when(&invite.when, zone, clock);
     let tag = match invite.kind {

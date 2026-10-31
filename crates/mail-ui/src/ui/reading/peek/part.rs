@@ -44,7 +44,7 @@ pub(super) fn draw(
     message: MessageId,
     index: usize,
     page: u32,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Drawn {
     let stored = match client.stored().message(message) {
         Ok(stored) => stored,

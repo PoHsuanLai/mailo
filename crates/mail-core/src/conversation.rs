@@ -5,13 +5,13 @@
 //! press of a control performs, which message a reply answers and how mute turns on a selection are about the
 //! conversation and not about how it is shown, so they live here where a table can test them.
 
-use crate::mailbox_filter::{for_role, pending_snooze};
 use crate::vip::Vips;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Filter, FollowUp, LabelId, MailboxRef, MailboxRole, MailboxSet, Membership, Message, Mute, Op,
     OpKind, Pin, ReadState, Snooze, Star, ThreadSummary, Threading, View,
 };
+use mail_logic::mailbox_filter::{for_role, pending_snooze};
 
 /// What Mute does to a conversation, given what it is now: mute it, or unmute it if it is muted.
 ///
@@ -51,7 +51,7 @@ pub fn mute_for_all(summaries: &[ThreadSummary]) -> Mute {
 /// 3. **Archive** when any message is filed there and none is in the inbox or a bin.
 /// 4. **Elsewhere**: only Sent or Drafts, the person's own mail that was never filed.
 ///
-/// The Archive place lists by the same rule ([`crate::mailbox_filter::for_role`]), so what it lists is
+/// The Archive place lists by the same rule ([`mail_logic::mailbox_filter::for_role`]), so what it lists is
 /// always offered Move to Inbox and never Archive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Whereabouts {
@@ -412,12 +412,6 @@ fn source_for(role: MailboxRole) -> Source {
     }
 }
 
-/// What `is:kept` finds: the conversations the person keeps handy, starred or pinned, side by
-/// side, so a search need not remember which mark they gave it.
-pub fn kept_filter() -> Filter {
-    Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned])
-}
-
 /// What the VIPs place is called, and so what a Space remembers it by.
 pub const VIPS: &str = "VIPs";
 
@@ -686,8 +680,8 @@ pub fn scoped_unread_filter(source: &Source, scope: Option<Filter>) -> Option<Fi
 
 pub fn unread_filter(source: &Source) -> Option<Filter> {
     match source {
-        Source::Mail(filter) => Some(crate::mailbox_filter::unread_in(filter.clone())),
-        Source::Saved(view) => Some(crate::mailbox_filter::unread_in(view.filter.clone())),
+        Source::Mail(filter) => Some(mail_logic::mailbox_filter::unread_in(filter.clone())),
+        Source::Saved(view) => Some(mail_logic::mailbox_filter::unread_in(view.filter.clone())),
         // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
         Source::Drafts | Source::Waiting | Source::History | Source::Scheduled => None,
     }
@@ -1128,7 +1122,7 @@ mod tests {
         );
         assert_eq!(
             unread_filter(&ours[0].source),
-            Some(crate::mailbox_filter::unread_in(vips.filter()))
+            Some(mail_logic::mailbox_filter::unread_in(vips.filter()))
         );
     }
 
@@ -1136,7 +1130,7 @@ mod tests {
     #[test]
     fn kept_finds_starred_and_pinned_conversations() {
         let now = crate::support_tests::now();
-        let kept = kept_filter();
+        let kept = mail_logic::mailbox_filter::kept_filter();
         type Case = (&'static str, fn(&mut ThreadSummary), bool);
         let cases: [Case; 4] = [
             ("starred", |s| s.star = Star::Starred, true),
@@ -1248,11 +1242,11 @@ mod tests {
         let all = kept_single(&[], &waiting, Threading::Single);
         assert_eq!(threading_of(&waiting, &all), Threading::Threaded);
 
-        let mut view = crate::saved_search::Draft::from_search("is:unread");
+        let mut view = mail_logic::saved_search::Draft::from_search("is:unread");
         view.threading = Threading::Single;
         let view = view
             .build(
-                &crate::query::Known {
+                &mail_logic::query::Known {
                     labels: &[],
                     accounts: &[],
                 },

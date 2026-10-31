@@ -5,7 +5,7 @@ mod link;
 pub(super) use link::{LinkPill, url_spans};
 
 use dioxus::prelude::*;
-use mail_client::trust::Destination;
+use mail_logic::trust::Destination;
 
 /// Put an address or text on the clipboard.
 pub(in crate::ui) fn copy(text: &str) {
@@ -42,7 +42,7 @@ fn use_frame_pill(mut hover: Hover) {
             };
             while let Some(pointed) = pill.next().await {
                 hover.link.set(
-                    pointed.map(|link| mail_client::trust::destination(&link.text, &link.href)),
+                    pointed.map(|link| mail_logic::trust::destination(&link.text, &link.href)),
                 );
             }
         }

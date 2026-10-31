@@ -1,6 +1,6 @@
 //! A search line split into operators, finished words, and the word still being typed.
 //!
-//! Operators come from [`crate::query::parse_with`], so `from:dana` means the same thing here as
+//! Operators come from [`mail_logic::query::parse_with`], so `from:dana` means the same thing here as
 //! it does in the rest of the app. The free words stay separate because prefix expansion
 //! completes only the last one, and only while it is still being typed.
 
@@ -41,15 +41,15 @@ impl Parsed {
     }
 }
 
-/// Split `input` with [`crate::query::parse_with`].
+/// Split `input` with [`mail_logic::query::parse_with`].
 ///
 /// `zone` resolves `before:` and `after:`. `names` resolves `label:`, `account:` and the
-/// relative dates ([`crate::query::Names`]). A caller with no index passes
-/// `&crate::query::unnamed` and `label:travel` becomes text, which is the parser's own rule.
+/// relative dates ([`mail_logic::query::Names`]). A caller with no index passes
+/// `&mail_logic::query::unnamed` and `label:travel` becomes text, which is the parser's own rule.
 ///
 /// Terms joined by `OR` or `|` are one operator, typed as they were joined: an either-or of
 /// words is not a word to complete.
-pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn crate::query::Names) -> Parsed {
+pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn mail_logic::query::Names) -> Parsed {
     let ended_with_space = input.ends_with(char::is_whitespace);
     let mut operators = Vec::new();
     let mut operator_tokens = Vec::new();
@@ -57,7 +57,7 @@ pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn crate::query::Nam
     let mut phrases = Vec::new();
 
     for token in either_joined(raw_tokens(input)) {
-        match crate::query::parse_with(&token, zone, label) {
+        match mail_logic::query::parse_with(&token, zone, label) {
             Filter::All => {}
             Filter::Text(TextMatch::Contains(word)) => words.push(word),
             Filter::Text(TextMatch::Exact(phrase)) => phrases.push(phrase),
@@ -85,7 +85,7 @@ pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn crate::query::Nam
 /// reads it as one either-or term. A joiner with nothing on one side stays a token of its own,
 /// which parses to nothing.
 fn either_joined(tokens: Vec<String>) -> Vec<String> {
-    let joiner = crate::query::joins;
+    let joiner = mail_logic::query::joins;
     let mut out: Vec<String> = Vec::new();
     let mut joining = false;
     for token in tokens {

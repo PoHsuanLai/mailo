@@ -7,9 +7,9 @@ use crate::wire::{
     Snip, Target,
 };
 use chrono::{Local, Utc};
-use mail_core::when::{Clock, Stamp, stamp};
 use mail_core::{SqliteStore, Store};
 use mail_domain::{Address, Message, ThreadId, ThreadSummary};
+use mail_logic::when::{Clock, Stamp, stamp};
 use mail_ui::ui::ask;
 use std::fmt::Write as _;
 
@@ -60,7 +60,7 @@ impl Provider {
     /// then the rest, newest first.
     fn found(&self, text: &str) -> Result<Vec<ThreadSummary>, AppRefusal> {
         let labels = mail_core::query::known_labels(&self.store);
-        let named = mail_core::query::named(&labels);
+        let named = mail_logic::query::named(&labels);
         let searched = mail_core::search::search_list(
             text,
             self.store.as_ref(),

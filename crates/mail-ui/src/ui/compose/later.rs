@@ -1,7 +1,7 @@
 //! Send later, in the window: what Send ▾ › Send Later and the Sends row choose means to the
 //! outbox, the "Pick a Time…" field, and the list of messages waiting for their time.
 //!
-//! The times are the snooze menu's: a typed phrase goes through [`mail_client::snooze::snooze_until`],
+//! The times are the snooze menu's: a typed phrase goes through [`mail_logic::snooze::snooze_until`],
 //! and every time is written by [`when_words`], so "Tomorrow 08:00" reads the same everywhere.
 
 use ds::base::geometry::placement::{Align, Side};
@@ -16,9 +16,9 @@ use ds::root::pass_through::ExtraClass;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
-use mail_client::undo::{Resend, Undo};
-use mail_client::when::Clock;
 use mail_domain::{ChangeId, Draft, DraftId, Patch, SendState};
+use mail_logic::undo::{Resend, Undo};
+use mail_logic::when::Clock;
 
 use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};
@@ -69,7 +69,7 @@ where
     if typed.trim().is_empty() {
         return Err(TRY.to_owned());
     }
-    let at = mail_client::snooze::snooze_until(typed, now, zone)?;
+    let at = mail_logic::snooze::snooze_until(typed, now, zone)?;
     if at <= now {
         return Err(passed(at, now, zone, clock));
     }

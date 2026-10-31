@@ -2,7 +2,7 @@
 //!
 //! Sync and the fetch state machines, accounts and their discovery, composing, rules, contacts,
 //! search, the switches kept in the config directory, and the rest, over the pure crates
-//! (`mail-domain`, `mail-mime`, `mail-proto`, `mail-pim`) and the I/O ones (`mail-store`,
+//! (`mail-domain`, `mail-mime`, `mail-proto`, `mail-pim`, `mail-logic`) and the I/O ones (`mail-store`,
 //! `mail-runtime`). `mail-app` is its only user, and draws two front-ends over it: the window
 //! (`mail_ui::ui`) and the command line (`mail_cli`).
 //!
@@ -42,23 +42,16 @@ pub mod import;
 pub mod invite;
 pub mod junk;
 pub mod mail;
-pub mod mailbox_filter;
 pub mod message;
 pub mod notify;
 pub mod offline;
-pub mod otp;
-pub mod password;
 pub mod pgp;
 pub mod profile;
 pub mod protect;
 pub mod provider;
 pub mod query;
 pub mod receipt;
-pub mod recent;
-pub mod remedy;
 pub mod rules;
-pub mod saved_search;
-pub mod scope;
 pub mod search;
 pub mod server_search;
 pub mod signature;
@@ -68,14 +61,11 @@ pub mod snooze;
 pub mod sync;
 pub mod template;
 pub mod transfer;
-pub mod trust;
-pub mod undo;
 pub mod unsubscribe;
 pub mod vip;
-pub mod when;
 
 pub use environment::{Environment, Program};
-pub use error::{CoreError, TimeError};
+pub use error::CoreError;
 pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, OAuthClients, RuleOps,
     SyncOps, SystemClock,
@@ -101,7 +91,8 @@ pub use mail_secrets::{
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{AccountPrefs, SqliteStore, Store, StoreError, Syncing};
-pub use remedy::{Remedy, SignInWith};
 
+#[cfg(test)]
+mod password_tests;
 #[cfg(test)]
 mod support_tests;

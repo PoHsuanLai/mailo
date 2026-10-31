@@ -235,7 +235,7 @@ fn human_text(
     let title = invite.title.as_deref().unwrap_or("(no title)");
     // Written for the organiser, in their zone or in UTC: their clock is not known here, and
     // twenty-four hours is the reading no one takes for the other half of the day.
-    let when = say_when(&invite.when, &Utc, crate::when::Clock::H24);
+    let when = say_when(&invite.when, &Utc, mail_logic::when::Clock::H24);
     let mut out = format!(
         "{who} has {} the invitation to \"{}\".\r\n",
         match attendance {

@@ -14,8 +14,8 @@ use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use mail_client::Client;
-use mail_client::when::Clock;
 use mail_domain::{DateRange, Vacation};
+use mail_logic::when::Clock;
 
 use super::super::common::classed;
 use super::super::data::AccountRow;
@@ -117,7 +117,7 @@ where
         return Ok(None);
     }
     mail_client::rules::server::instant(text, zone)
-        .or_else(|_| mail_client::snooze::snooze_until(text, now, zone))
+        .or_else(|_| mail_logic::snooze::snooze_until(text, now, zone))
         .map(Some)
         .map_err(|_| copy::errors::not_a_time(text))
 }

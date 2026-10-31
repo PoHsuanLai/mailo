@@ -6,8 +6,8 @@
 //! the `#[error(...)]` attributes, not in a `String` carried about, so a window can match on the
 //! variant and say it its own way.
 
-use crate::remedy::{Remedy, SignInWith};
 use mail_domain::{Retry, Retryable};
+use mail_logic::remedy::{Remedy, SignInWith};
 use std::path::{Path, PathBuf};
 
 /// What a failure carries as its cause, kept as the error it was rather than as its text.
@@ -28,7 +28,7 @@ pub enum CoreError {
     #[error(transparent)]
     Pim(#[from] mail_pim::PimError),
     #[error(transparent)]
-    Time(#[from] TimeError),
+    Time(#[from] mail_logic::snooze::TimeError),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
@@ -505,50 +505,10 @@ impl From<CoreError> for String {
     }
 }
 
-impl From<TimeError> for String {
-    fn from(error: TimeError) -> Self {
-        error.to_string()
-    }
-}
-
 impl From<mail_runtime::unsubscribe::UnsubscribeFailure> for CoreError {
     fn from(failure: mail_runtime::unsubscribe::UnsubscribeFailure) -> Self {
         CoreError::Runtime(mail_runtime::RuntimeError::Unsubscribe(failure))
     }
-}
-
-/// A time that was typed and could not be read, or cannot be used.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum TimeError {
-    #[error("{hour}:00 is not a time")]
-    NotAnHour { hour: u32 },
-    #[error("no tomorrow")]
-    NoTomorrow,
-    /// A daylight-saving jump skipped it, or the zone has no such instant.
-    #[error("that local time does not exist")]
-    NoLocalTime,
-    #[error(
-        "{phrase:?} is not a time I know. Try: later, tonight, tomorrow, tomorrow 9, weekend, \
-         monday…sunday, fri 17:00, +2h, +3d, 2026-09-25, or \"2026-09-25 14:30\""
-    )]
-    Unknown { phrase: String },
-    #[error("{rest:?} is not a number of minutes, hours or days")]
-    NotACount { rest: String },
-    #[error("a snooze goes forwards")]
-    Backwards,
-    #[error("{unit:?} is not m, h or d")]
-    BadUnit { unit: String },
-    #[error("{rest:?} is longer than a mail client can wait")]
-    TooLong { rest: String },
-    /// A reminder was asked for with no time given.
-    #[error("Type a time: tomorrow 9, fri 17:00, +3d, 2026-10-02")]
-    Blank,
-    #[error("{stamp} has already passed. Pick a later time.")]
-    Passed { stamp: String },
-    #[error("{text:?} is not a date: write 2026-10-08 or 2026-10-08T09:00")]
-    NotADate { text: String },
-    #[error("{text} does not exist in this time zone")]
-    NoSuchInstant { text: String },
 }
 
 #[cfg(test)]

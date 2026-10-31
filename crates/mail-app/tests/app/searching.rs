@@ -17,7 +17,7 @@ fn taipei() -> chrono::FixedOffset {
 }
 
 fn parse(input: &str) -> Filter {
-    query::parse_with(input, &taipei(), &mail_core::query::unnamed)
+    mail_logic::query::parse_with(input, &taipei(), &mail_logic::query::unnamed)
 }
 
 mod what_it_builds {
@@ -387,7 +387,7 @@ mod labels {
                 .map(|(word, id)| (word.to_owned(), id))
                 .collect();
             assert_eq!(
-                query::parse_with(typed, &taipei(), &query::named(&known)),
+                mail_logic::query::parse_with(typed, &taipei(), &mail_logic::query::named(&known)),
                 want,
                 "{name}, in the terminal"
             );

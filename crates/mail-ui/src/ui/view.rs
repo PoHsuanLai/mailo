@@ -9,8 +9,8 @@ use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
 use mail_client::compose::addresses::{join_addresses, parse_addresses};
 use mail_client::conversation::{mute_for_all, offers};
-use mail_client::mailbox_filter::for_role;
 use mail_domain::*;
+use mail_logic::mailbox_filter::for_role;
 use mail_reader::{RemoteImages, SanitizePolicy};
 use porter_core::AccountId;
 use serde::de::Deserializer;
@@ -748,7 +748,7 @@ pub struct Shell {
     /// and offers Add Account, is up.
     pub no_account: bool,
     /// What the undo toast and ⌘Z can take back, newest last.
-    pub undo: mail_client::undo::UndoStack,
+    pub undo: mail_logic::undo::UndoStack,
     /// Peek, over the window: an attachment or a link's card. `None` is closed. Belongs to the
     /// open thread: [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
     pub preview: Option<Preview>,
@@ -927,7 +927,7 @@ impl Default for Shell {
             applying_rules: None,
             tidying: None,
             no_account: false,
-            undo: mail_client::undo::UndoStack::default(),
+            undo: mail_logic::undo::UndoStack::default(),
             preview: None,
             raw: None,
             save: None,
@@ -938,8 +938,8 @@ impl Default for Shell {
 
 impl Shell {
     /// The names a search typed here resolves `label:` and `account:` against.
-    pub fn known(&self) -> mail_client::query::Known<'_> {
-        mail_client::query::Known {
+    pub fn known(&self) -> mail_logic::query::Known<'_> {
+        mail_logic::query::Known {
             labels: &self.labels,
             accounts: &self.accounts,
         }
@@ -984,7 +984,7 @@ impl Shell {
                 | None => Filter::All,
             }
         } else {
-            mail_client::query::parse_with(needle, &chrono::Local, &self.known())
+            mail_logic::query::parse_with(needle, &chrono::Local, &self.known())
         };
         let filter = self.with_account(filter);
         Query {
@@ -1552,7 +1552,7 @@ pub enum Listing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_client::mailbox_filter::pending_snooze;
+    use mail_logic::mailbox_filter::pending_snooze;
 
     #[test]
     fn inbox_is_just_a_filter() {
@@ -2006,7 +2006,7 @@ mod keyboard {
     use super::*;
     use chrono::{TimeZone, Utc};
     use mail_client::conversation::{allowed_actions, op_for, step};
-    use mail_client::mailbox_filter::pin_op;
+    use mail_logic::mailbox_filter::pin_op;
 
     fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
         ThreadSummary {

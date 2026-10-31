@@ -316,7 +316,7 @@ mod tests {
     /// address gives the provider, the sieve server and the receiver the same host.
     #[test]
     fn a_jmap_session_url_has_one_host_for_every_reader() {
-        use crate::trust::registered;
+        use mail_logic::trust::registered;
         use mail_mime::auth::Receiver;
         use mail_proto::sieve::{NoSieve, endpoint};
         use porter_provider::Issuer;

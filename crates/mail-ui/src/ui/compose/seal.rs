@@ -18,9 +18,9 @@ use mail_domain::{Draft, Fingerprint};
 
 use super::super::pgp::{Busy, Passphrase, Scheme, Tried, WRONG, seams, short};
 use super::super::press::on_primary;
-use mail_client::password::Password;
 use mail_client::pgp::PgpError;
 use mail_client::smime::SmimeError;
+use mail_logic::password::Password;
 
 /// What the warning bar says about signing and encrypting.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -5162,6 +5162,7 @@ dependencies = [
  "mail-ui",
  "mailo-crypto",
  "mailo-domain",
+ "mailo-logic",
  "mailo-mime",
  "mailo-reader",
  "pdfrum",
@@ -5212,6 +5213,7 @@ dependencies = [
  "mailo-archive",
  "mailo-crypto",
  "mailo-domain",
+ "mailo-logic",
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
@@ -5240,6 +5242,7 @@ dependencies = [
  "mail-store",
  "mailo-domain",
  "mailo-editor",
+ "mailo-logic",
  "mailo-mime",
  "mailo-proto",
  "mailo-reader",
@@ -5274,6 +5277,7 @@ dependencies = [
  "mailo-crypto",
  "mailo-domain",
  "mailo-editor",
+ "mailo-logic",
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
@@ -5356,6 +5360,7 @@ dependencies = [
  "mail-store",
  "mail-ui",
  "mailo-domain",
+ "mailo-logic",
  "porter-core",
  "serde",
  "serde_json",
@@ -5409,6 +5414,7 @@ dependencies = [
  "mail-appkit",
  "mail-client",
  "mailo-domain",
+ "mailo-logic",
  "mailo-proto",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
@@ -5557,6 +5563,7 @@ dependencies = [
  "mailo-crypto",
  "mailo-domain",
  "mailo-editor",
+ "mailo-logic",
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
@@ -5658,6 +5665,22 @@ dependencies = [
  "mailo-reader",
  "proptest",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "mailo-logic"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "mailo-domain",
+ "porter-core",
+ "porter-provider",
+ "psl",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]

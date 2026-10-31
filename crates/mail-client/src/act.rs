@@ -9,11 +9,11 @@
 //! conversation, as near as its summary tells, so a caller can stop listing it at once.
 
 use chrono::{DateTime, Utc};
-use mail_core::undo::Undo;
 use mail_domain::{
     Filter, LabelId, MailboxRole, MatchCtx, Membership, MessageId, Op, Target, ThreadId,
     ThreadSummary, View, ViewId,
 };
+use mail_logic::undo::Undo;
 use mail_store::{Generation, SqliteStore, Store};
 use porter_core::AccountId;
 

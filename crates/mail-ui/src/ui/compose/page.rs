@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use crate::settings::MessageFormat;
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
-use mail_client::compose::PictureSize;
-use mail_client::when::Clock;
 use mail_domain::{
     Address, DeliveryReport, Draft, DraftId, IdentityId, Priority, ReceiptRequest, SignatureId,
 };
+use mail_logic::picture::PictureSize;
+use mail_logic::when::Clock;
 use porter_core::AccountId;
 
 use mail_client::compose::doc_of;
@@ -49,7 +49,7 @@ impl When {
     pub(in crate::ui) fn label(self, clock: Clock) -> String {
         let at = |hour| {
             let time = NaiveTime::from_hms_opt(hour, 0, 0).unwrap_or(NaiveTime::MIN);
-            mail_client::when::time_of_day(&time, clock)
+            mail_logic::when::time_of_day(&time, clock)
         };
         match self {
             When::Now => "Now".to_owned(),

@@ -5,8 +5,8 @@ use crate::ui::today::{Today, at};
 use chrono::{TimeZone, Utc};
 use mail_core::SqliteStore;
 use mail_core::Store;
-use mail_core::when::Clock;
 use mail_domain::{Address, Draft, DraftId, ThreadId};
+use mail_logic::when::Clock;
 
 fn time(minute: i64) -> chrono::DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + minute * 60, 0).unwrap()
@@ -156,7 +156,7 @@ fn each_draft_is_named_by_what_is_in_it_and_an_empty_or_gone_one_is_left_out() {
     let when = |draft: &Draft| {
         Some(format!(
             "Draft \u{b7} {}",
-            mail_core::when::listed(draft.updated, time(10), &chrono::Local, Clock::H24)
+            mail_logic::when::listed(draft.updated, time(10), &chrono::Local, Clock::H24)
         ))
     };
     // Newest put aside first.

@@ -210,7 +210,7 @@ fn what_one_frame_of_the_window_costs() {
     // 1. The list. One query for the whole visible list, deliberately — see `ui::App`.
     let list = timed(7, || {
         let _ = store.threads(
-            &page(50, mail_core::mailbox_filter::for_role(MailboxRole::Inbox)),
+            &page(50, mail_logic::mailbox_filter::for_role(MailboxRole::Inbox)),
             now,
         );
     });
@@ -289,7 +289,11 @@ fn what_one_frame_of_the_window_costs() {
         .unwrap_or("widgets")
         .to_owned();
     let search = timed(7, || {
-        let filter = query::parse_with(&needle, &chrono::Local, &query::named(&index));
+        let filter = mail_logic::query::parse_with(
+            &needle,
+            &chrono::Local,
+            &mail_logic::query::named(&index),
+        );
         let _ = store.threads(&page(50, filter), now);
     });
 

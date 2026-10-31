@@ -40,7 +40,7 @@ pub use stored::Stored;
 pub mod prelude {
     pub use mail_core::{
         AccountSecrets, ClientRegistry, CoreError, Environment, NoKeyring, OAuthClients, Program,
-        Pushed, Remedy, Searched, SignInWith, SigningStore,
+        Pushed, Searched, SigningStore,
     };
     pub use mail_store::StoreError;
 }

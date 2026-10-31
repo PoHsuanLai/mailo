@@ -18,6 +18,7 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 [dependencies]
 mail-core = { workspace = true, features = ["pdf", "keyring"] }
 mail-domain.workspace = true
+mail-logic.workspace = true
 mail-store.workspace = true
 mail-client.workspace = true
 mail-edge.workspace = true

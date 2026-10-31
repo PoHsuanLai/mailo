@@ -1,0 +1,40 @@
+[package]
+name = "mailo-logic"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "The decisions of a mail client that need no I/O: how a time is written, what an undo reverses, how a typed search is read and ranked, what a rule or a filter means. No sockets, store, clock or window."
+readme = "README.md"
+keywords = ["email", "search", "mail"]
+categories = ["email", "text-processing"]
+
+# Published as mailo-logic; used in code as `mail_logic`, as the workspace always has.
+[lib]
+name = "mail_logic"
+
+[dependencies]
+mail-domain.workspace = true
+porter-core.workspace = true
+porter-provider.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+serde.workspace = true
+# The registered domain of a host, for the brand check and the link pill. Chosen over `publicsuffix`,
+# which needs the list shipped and parsed at run time; this one compiles the list in, so a check
+# needs no file and no I/O. MIT/Apache-2.0, with one dependency, `psl-types`.
+psl = "2"
+# A typed password is overwritten when it is dropped (`password.rs`). Already in the lock through
+# rustls and the keyring.
+zeroize = "1"
+
+[dev-dependencies]
+mail-domain = { workspace = true, features = ["testing"] }
+serde_json = "1"
+uuid.workspace = true
+
+[lints]
+workspace = true

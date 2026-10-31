@@ -8,8 +8,8 @@
 //! same undo.
 
 use crate::error::Logged;
-use crate::undo::Undo;
 use mail_domain::*;
+use mail_logic::undo::Undo;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -37,7 +37,7 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
         .remote
         .as_ref()
         .filter(|_| has_server(store, entry.account.clone()))
-        .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse));
+        .and_then(|remote| mail_logic::undo::reverse_intent(remote, &entry.inverse));
     if store
         .apply(entry.account.clone(), &entry.inverse)
         .or_log("an undo could not be applied")

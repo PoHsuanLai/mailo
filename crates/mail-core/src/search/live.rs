@@ -11,7 +11,7 @@ fn subjects(input: &str, store: &mail_store::SqliteStore) -> Vec<String> {
         store,
         &Affinity::default(),
         &Utc,
-        &crate::query::unnamed,
+        &mail_logic::query::unnamed,
         QUICK_LIMIT,
         at(900),
     )

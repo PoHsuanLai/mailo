@@ -25,8 +25,8 @@ pub(in crate::ui) use draw::Invitation;
 use chrono::{DateTime, Utc};
 use mail_client::Client;
 use mail_client::message::{Invited, Looks};
-use mail_client::when::Clock;
 use mail_domain::*;
+use mail_logic::when::Clock;
 use std::path::Path;
 
 /// The card for what a message was found to invite to, with times in the reader's zone by

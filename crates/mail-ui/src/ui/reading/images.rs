@@ -8,7 +8,7 @@
 //! either.
 //!
 //! What it trusts is an address, so it only believes an address it can tie to its sender: a
-//! display name that claims a brand the address does not belong to ([`mail_client::trust::spoof`]),
+//! display name that claims a brand the address does not belong to ([`mail_logic::trust::spoof`]),
 //! or a message whose receiving server did not say DMARC passed for the From domain, is never
 //! loaded on the list's word. Anyone can write any address in From; the list would otherwise be a
 //! list of addresses to forge.
@@ -27,7 +27,7 @@ use std::sync::Arc;
 /// the address's domain. A message with no `Authentication-Results` this client believes has not
 /// passed.
 pub(super) fn suspicious(display: Option<&str>, email: &str, auth_passed: bool) -> bool {
-    mail_client::trust::spoof(display, email).is_some() || !auth_passed
+    mail_logic::trust::spoof(display, email).is_some() || !auth_passed
 }
 
 /// Whether a message from `email` (named `display`) opens with its remote images loaded, under

@@ -26,8 +26,8 @@ use super::certs::CertJob;
 use super::keys::Job;
 use super::{Busy, Passphrase, cert_short, short, who};
 use crate::ui::copy::menus;
-use mail_client::password::Password;
 use mail_client::pgp::WithSecret;
+use mail_logic::password::Password;
 
 /// A question the page is asking before it acts.
 #[derive(Debug, Clone, PartialEq, Eq)]

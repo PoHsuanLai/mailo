@@ -110,7 +110,7 @@ fn the_two_page_choices_print_differently_and_both_are_safe() {
         },
         &chrono::Utc,
         now(),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     )
     .unwrap();
     let apart = build(
@@ -121,7 +121,7 @@ fn the_two_page_choices_print_differently_and_both_are_safe() {
         },
         &chrono::Utc,
         now(),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     )
     .unwrap();
     assert_ne!(flow.html, apart.html, "the page choice changed nothing");
@@ -154,7 +154,7 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
         into.path(),
         &chrono::Utc,
         now(),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     );
     let second = save_into(
         &crate::ui::fixtures::client(&store),
@@ -163,7 +163,7 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
         into.path(),
         &chrono::Utc,
         now(),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     );
     let one = into.path().join(format!("{SUBJECT}.{SAVED_AS}"));
     let two = into.path().join(format!("{SUBJECT} (2).{SAVED_AS}"));
@@ -196,7 +196,7 @@ fn a_thread_that_is_gone_says_so_rather_than_saving_nothing() {
         into.path(),
         &chrono::Utc,
         now(),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     )
     .unwrap_err();
     assert!(said.starts_with("Couldn’t save for printing:"), "{said}");

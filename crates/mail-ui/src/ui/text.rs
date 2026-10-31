@@ -1,6 +1,6 @@
 use chrono::Local;
-use mail_client::when::Stamp;
 use mail_domain::*;
+use mail_logic::when::Stamp;
 
 pub(super) fn from_name(message: &Message) -> String {
     message.from.name.clone().unwrap_or_default()
@@ -62,8 +62,8 @@ pub(super) fn address(message: &Message) -> String {
     message.from.email.clone()
 }
 
-pub(super) fn stamp(message: &Message, clock: mail_client::when::Clock) -> String {
-    mail_client::when::stamp(message.date, &Local, Stamp::Full, clock)
+pub(super) fn stamp(message: &Message, clock: mail_logic::when::Clock) -> String {
+    mail_logic::when::stamp(message.date, &Local, Stamp::Full, clock)
 }
 
 pub(super) fn sender(summary: &ThreadSummary) -> String {

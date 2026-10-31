@@ -38,8 +38,8 @@ pub mod bimi {
 }
 pub mod compose {
     pub use mail_core::compose::{
-        ATTACHMENT_BUDGET, Answer, Fit, Leaves, Myself, PictureSize, Quote, Redirected, Said,
-        SendError, SendLimit, Weight, Written, doc_of, fit, shows_inline,
+        ATTACHMENT_BUDGET, Answer, Fit, Leaves, Myself, Quote, Redirected, Said, SendError,
+        SendLimit, Weight, Written, doc_of, fit, shows_inline,
     };
     pub mod addresses {
         pub use mail_core::compose::addresses::{join_addresses, parse_addresses};
@@ -74,9 +74,6 @@ pub mod export {
 }
 pub mod folder {
     pub use mail_core::folder::Refusal;
-}
-pub mod follow_up {
-    pub use mail_core::follow_up::{CHOICES, due, returned_words};
 }
 pub mod formats {
     pub use mail_core::formats::{Writer, writer_named, writers};
@@ -124,17 +121,11 @@ pub mod offline {
         Every, FILE_NAME, Keep, Kept, Remove, Window, change, damage, load, said, save,
     };
 }
-pub mod password {
-    pub use mail_core::password::Password;
-}
 pub mod pgp {
     pub use mail_core::pgp::{Ask, PgpError, Protected, WithSecret, no_passphrase};
     pub mod keys {
         pub use mail_core::pgp::keys::export_public;
     }
-}
-pub mod mailbox_filter {
-    pub use mail_core::mailbox_filter::{for_role, pending_snooze, pin_op, role_of, unread_in};
 }
 pub mod attachment_image {
     pub use mail_core::attachment_image::{
@@ -180,9 +171,6 @@ pub mod rules {
 pub mod schedule {
     pub use mail_core::schedule::{Daemon, Lost, Schedule, Timing, probe};
 }
-pub mod scope {
-    pub use mail_core::scope::Scope;
-}
 pub mod search {
     // `run` reads what it is handed: a caller has only the client's (`Client::source`).
     pub use mail_core::search::{
@@ -200,9 +188,6 @@ pub mod smime {
         pub use mail_core::smime::certs::export;
     }
 }
-pub mod snooze {
-    pub use mail_core::snooze::snooze_until;
-}
 pub mod sync {
     pub use mail_core::sync::Configured;
     pub mod due {
@@ -218,12 +203,6 @@ pub mod sync {
 pub mod transfer {
     pub use mail_core::transfer::{IoCause, Refusal, Seen, expand_here, look, suggested};
 }
-pub mod trust {
-    pub use mail_core::trust::{Destination, destination, spoof};
-}
-pub mod undo {
-    pub use mail_core::undo::{Resend, Undo, UndoHandle, UndoStack, reverse_folder};
-}
 pub mod unsubscribe {
     pub use mail_core::unsubscribe::{Found, Outcome, client};
 }
@@ -235,14 +214,8 @@ pub mod conversation {
         says_for_all, scoped, scoped_unread_filter, step, threading_of, turns_off, unread_filter,
     };
 }
-pub mod saved_search {
-    pub use mail_core::saved_search::{Draft, Refusal, written};
-}
 pub mod wanted {
     pub use mail_core::wanted::{ask_first, claim};
-}
-pub mod when {
-    pub use mail_core::when::{Clock, Stamp, listed, stamp, time_of_day, upcoming};
 }
 pub use mail_core::Storage;
 pub mod junk {

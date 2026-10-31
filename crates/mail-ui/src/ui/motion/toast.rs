@@ -12,7 +12,7 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::stack::toast_hub::UndoToken;
-use mail_client::undo::UndoHandle;
+use mail_logic::undo::UndoHandle;
 
 #[component]
 pub(in crate::ui) fn Toast(shell: Signal<Shell>) -> Element {

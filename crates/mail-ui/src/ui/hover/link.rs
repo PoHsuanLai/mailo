@@ -3,7 +3,7 @@
 use super::hover;
 use dioxus::prelude::*;
 use ds::components::app::link_pill::{LinkPill as Pill, LinkTarget};
-use mail_client::trust::Destination;
+use mail_logic::trust::Destination;
 
 /// Where the link under the pointer goes, like a browser's status bar, and loud when its text
 /// names somewhere else. Drawn in the reader; the link reports itself from the parsed blocks.
@@ -73,7 +73,7 @@ fn web(scheme: &str, sub: &str, registered: &str, path: &str) -> Element {
 /// `url` drawn the way the pill draws a link's target. Only the address is read: its text is
 /// the address itself, so there is nothing for it to claim.
 pub(in crate::ui) fn url_spans(url: &str) -> Element {
-    match mail_client::trust::destination(url, url) {
+    match mail_logic::trust::destination(url, url) {
         Destination::Web {
             scheme,
             sub,

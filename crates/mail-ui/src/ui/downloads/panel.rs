@@ -271,7 +271,7 @@ pub(super) fn detail(
     entry: &Entry,
     here: bool,
     now: chrono::DateTime<chrono::Utc>,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> String {
     if !here {
         return "Moved or deleted".to_owned();

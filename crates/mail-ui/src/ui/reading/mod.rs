@@ -145,9 +145,9 @@ fn sender_face(message: &Message) -> AvatarFace {
 fn when_short(
     message: &Message,
     now: chrono::DateTime<chrono::Utc>,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> String {
-    mail_client::when::listed(message.date, now, &chrono::Local, clock)
+    mail_logic::when::listed(message.date, now, &chrono::Local, clock)
 }
 
 /// The key [`super::unsubscribe::Lookout`] and [`super::receipt::Receipts`] are mounted under:

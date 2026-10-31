@@ -10,8 +10,8 @@ fn labels() -> Vec<(String, LabelId)> {
     )]
 }
 
-fn known(labels: &[(String, LabelId)]) -> mail_core::query::Known<'_> {
-    mail_core::query::Known {
+fn known(labels: &[(String, LabelId)]) -> mail_logic::query::Known<'_> {
+    mail_logic::query::Known {
         labels,
         accounts: &[],
     }

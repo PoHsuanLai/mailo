@@ -16,8 +16,8 @@ use crate::ui::view::{Bar, BarListing, Shell, Source};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::prelude::Icon;
-use mail_client::mailbox_filter::for_role;
 use mail_domain::ThreadId;
+use mail_logic::mailbox_filter::for_role;
 
 /// What a command acts on: the window's shell, the list's pages and whether the sidebar is
 /// hidden.

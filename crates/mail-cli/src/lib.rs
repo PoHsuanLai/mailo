@@ -5,9 +5,9 @@
 
 use chrono::Local;
 use mail_core::account::{Receive, Setup};
-use mail_core::when::Stamp;
 use mail_core::{Mail, SqliteStore, Store};
 use mail_domain::*;
+use mail_logic::when::Stamp;
 use porter_core::AccountId;
 use std::fmt::Write as _;
 
@@ -1499,7 +1499,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             // what the other has put away.
             let page = store
                 .threads(
-                    &list_query(mail_core::mailbox_filter::for_role(*mailbox), *limit),
+                    &list_query(mail_logic::mailbox_filter::for_role(*mailbox), *limit),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -1531,7 +1531,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     "\n--- {} <{}>  {}\n    {}",
                     message.from.name.as_deref().unwrap_or(""),
                     message.from.email,
-                    mail_core::when::stamp(message.date, &Local, Stamp::Full, clock),
+                    mail_logic::when::stamp(message.date, &Local, Stamp::Full, clock),
                     message.id
                 );
                 // Asked here rather than only in a window, so a request is never answered by
@@ -1602,7 +1602,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             // answers to "which label is called this", and one of them was "none, ever".
             let labels = mail_core::query::known_labels(store);
             let accounts = mail_core::query::known_accounts(store);
-            let known = mail_core::query::Known {
+            let known = mail_logic::query::Known {
                 labels: &labels,
                 accounts: &accounts,
             };
@@ -1691,7 +1691,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         Command::ListSnoozed { limit } => {
             let page = store
                 .threads(
-                    &list_query(mail_core::mailbox_filter::pending_snooze(), *limit),
+                    &list_query(mail_logic::mailbox_filter::pending_snooze(), *limit),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -1932,10 +1932,10 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             let mut out = String::new();
             for role in MailboxRole::ALL {
                 // What the window's place lists: Archive is what is not in the inbox too.
-                let place = mail_core::mailbox_filter::for_role(role);
+                let place = mail_logic::mailbox_filter::for_role(role);
                 let total = store.count(&place, now).map_err(|e| e.to_string())?;
                 let unread = store
-                    .count(&mail_core::mailbox_filter::unread_in(place), now)
+                    .count(&mail_logic::mailbox_filter::unread_in(place), now)
                     .map_err(|e| e.to_string())?;
                 if total > 0 {
                     let _ = writeln!(out, "{:<8} {:>5} total  {:>5} unread", role, total, unread);
@@ -1989,7 +1989,7 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
         })
 }
 
-fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
+fn render_list(items: &[ThreadSummary], clock: mail_logic::when::Clock) -> String {
     let mut out = String::new();
     for summary in items {
         let _ = writeln!(
@@ -2000,7 +2000,7 @@ fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String
             } else {
                 " "
             },
-            mail_core::when::stamp(summary.last_date, &Local, Stamp::Row, clock),
+            mail_logic::when::stamp(summary.last_date, &Local, Stamp::Row, clock),
             summary.from.shown(),
             summary.subject,
             summary.id

@@ -1,7 +1,7 @@
 //! A message's one-time code in the reader: one quiet line under its header, the code and Copy
 //! Code, for the verification and sign-in mail a person opens only to copy a number out of.
 //!
-//! Which code a message carries is [`mail_core::otp`]'s. Finding it may read the stored
+//! Which code a message carries is [`mail_logic::otp`]'s. Finding it may read the stored
 //! blob (most of this mail is HTML alone), so it runs off the thread that draws and is kept per
 //! message and body in the app's [`Looks`](mail_core::message::Looks), as an invitation is.
 //! Copy Code goes through `ui::sensitive_copy`, not the window's host: the code is kept out of

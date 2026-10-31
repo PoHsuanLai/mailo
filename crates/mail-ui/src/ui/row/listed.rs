@@ -96,7 +96,7 @@ impl Listed {
         snippets: bool,
         now: DateTime<Utc>,
         zone: &Tz,
-        clock: mail_client::when::Clock,
+        clock: mail_logic::when::Clock,
     ) -> RowModel
     where
         Tz::Offset: std::fmt::Display,
@@ -118,7 +118,7 @@ impl Listed {
                     subject: runs(&summary.subject, subject_marks),
                     lines: lines(snippet.is_some()),
                     snippet,
-                    time: mail_client::when::listed(summary.last_date, now, zone, clock),
+                    time: mail_logic::when::listed(summary.last_date, now, zone, clock),
                     emphasis: if summary.read == ReadState::Unread {
                         Emphasis::Strong
                     } else {
@@ -134,7 +134,7 @@ impl Listed {
                 let (time, snippet) = match self.held() {
                     Some(at) => (when_words(at, now, zone, clock), None),
                     None => (
-                        mail_client::when::listed(draft.updated, now, zone, clock),
+                        mail_logic::when::listed(draft.updated, now, zone, clock),
                         snippets.then(|| TextLine::from(draft.state.word())),
                     ),
                 };

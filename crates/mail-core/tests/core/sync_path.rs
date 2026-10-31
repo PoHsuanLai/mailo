@@ -1000,7 +1000,7 @@ mod an_account_with_nothing_stored {
     /// from the stored plan, not guessed from the address.
     #[test]
     fn the_remedy_for_a_refused_sign_in_follows_the_stored_plan() {
-        use mail_core::{Remedy, SignInWith};
+        use mail_logic::remedy::{Remedy, SignInWith};
         let remedy = |auth: AuthPlan| {
             let store = configured_with(1, caps(), auth);
             sync::sign_in_remedy(&store, "ada@example.test")

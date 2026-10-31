@@ -25,6 +25,7 @@ desktop = ["mail-agent/desktop"]
 mail-core.workspace = true
 mail-agent.workspace = true
 mail-domain.workspace = true
+mail-logic.workspace = true
 mail-store.workspace = true
 # What the calls it makes for a caller take and hand back (`calls`).
 mail-mime.workspace = true

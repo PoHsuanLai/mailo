@@ -10,9 +10,9 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
-use mail_client::mailbox_filter::{for_role, pending_snooze};
 use mail_client::transfer::{self, IoCause, Refusal, Seen};
 use mail_domain::{Filter, MailboxRole, Star};
+use mail_logic::mailbox_filter::{for_role, pending_snooze};
 use porter_core::AccountId;
 
 use crate::ui::copy;

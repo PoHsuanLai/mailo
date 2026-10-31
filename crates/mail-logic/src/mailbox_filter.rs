@@ -4,7 +4,7 @@
 //! (`mail_ui::ui::view`); the filters here are the part both front-ends must agree on.
 
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, MailboxRole, Op, Pin, ThreadSummary};
+use mail_domain::{Filter, MailboxRole, Op, Pin, Star, ThreadSummary};
 
 /// What an unread count counts in `place`: its conversations that are unread.
 ///
@@ -32,7 +32,7 @@ pub fn for_role(role: MailboxRole) -> Filter {
             Filter::InMailbox(MailboxRole::Inbox),
             Filter::Not(Box::new(pending_snooze())),
         ]),
-        // Archived is filed in Archive with nothing in the inbox ([`crate::conversation::Whereabouts`]).
+        // Archived is filed in Archive with nothing in the inbox (`mail_core::conversation::Whereabouts`).
         // A thread's mailboxes are the union over its messages, and on Gmail All Mail is filed
         // as Archive and holds the inbox's mail too, so "has a message in Archive" listed every
         // inbox conversation here as well, and its menu offered Archive to what looked archived.
@@ -75,4 +75,10 @@ pub fn pending_snooze() -> Filter {
         Filter::Snoozed,
         Filter::Not(Box::new(Filter::SnoozeDue)),
     ])
+}
+
+/// What `is:kept` finds: the conversations the person keeps handy, starred or pinned, side by
+/// side, so a search need not remember which mark they gave it.
+pub fn kept_filter() -> Filter {
+    Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned])
 }

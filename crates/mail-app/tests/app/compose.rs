@@ -588,7 +588,7 @@ fn drafts_reports_what_is_waiting() {
         words::drafts(
             &compose::drafts(&store).unwrap(),
             at(30),
-            mail_core::when::Clock::H24
+            mail_logic::when::Clock::H24
         )
         .contains("no drafts")
     );
@@ -597,7 +597,7 @@ fn drafts_reports_what_is_waiting() {
     let listed = words::drafts(
         &compose::drafts(&store).unwrap(),
         at(30),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     );
     assert!(listed.contains("draft"), "{listed}");
     assert!(listed.contains("Re: lunch on friday"), "{listed}");
@@ -608,7 +608,7 @@ fn drafts_reports_what_is_waiting() {
         words::drafts(
             &compose::drafts(&store).unwrap(),
             at(30),
-            mail_core::when::Clock::H24
+            mail_logic::when::Clock::H24
         )
         .contains("queued")
     );
@@ -1878,8 +1878,8 @@ mod carrying_a_file {
         let limit = compose::SendLimit::USUAL;
         assert_eq!(weight.pictures(), 1);
         assert!(
-            weight.against(compose::PictureSize::Small, limit)
-                < weight.against(compose::PictureSize::Actual, limit)
+            weight.against(mail_logic::picture::PictureSize::Small, limit)
+                < weight.against(mail_logic::picture::PictureSize::Actual, limit)
         );
 
         compose::queue_sized(
@@ -1888,7 +1888,7 @@ mod carrying_a_file {
             &mail_core::pgp::no_passphrase,
             draft,
             compose::Leaves::Now,
-            compose::PictureSize::Small,
+            mail_logic::picture::PictureSize::Small,
             at(30),
         )
         .expect("send queues");

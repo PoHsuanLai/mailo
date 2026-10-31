@@ -7,8 +7,8 @@
 //! when the window asks at all. Pure: the alert and its buttons are `ui::destroy`.
 
 use super::view::{Shell, Source};
-use mail_client::mailbox_filter::for_role;
 use mail_domain::{MailboxRole, Message, ThreadId, ThreadSummary};
+use mail_logic::mailbox_filter::for_role;
 
 /// A place mail is deleted forever from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

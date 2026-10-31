@@ -26,8 +26,8 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use mail_client::when::Clock;
 use mail_domain::*;
+use mail_logic::when::Clock;
 
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
 const SNOOZE: &[(&str, &str)] = &[
@@ -45,7 +45,7 @@ pub(super) fn snooze_help<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz, clock: Clo
 where
     Tz::Offset: std::fmt::Display,
 {
-    mail_client::when::stamp(at, zone, mail_client::when::Stamp::Full, clock)
+    mail_logic::when::stamp(at, zone, mail_logic::when::Stamp::Full, clock)
 }
 
 /// The time a snooze lands on, short enough for the end of a menu row: `19:30` (or `7:30 PM`)
@@ -64,7 +64,7 @@ where
 {
     let there = at.with_timezone(zone);
     let days = (there.date_naive() - now.with_timezone(zone).date_naive()).num_days();
-    let hour = mail_client::when::time_of_day(&there, clock);
+    let hour = mail_logic::when::time_of_day(&there, clock);
     match days {
         ..=1 => hour,
         2..=6 => format!("{} {hour}", there.format("%a")),
@@ -72,8 +72,8 @@ where
     }
 }
 
-/// The one wording for a time something waits until, which lives in `mail_client::when`.
-pub(in crate::ui) use mail_client::when::upcoming as when_words;
+/// The one wording for a time something waits until, which lives in `mail_logic::when`.
+pub(in crate::ui) use mail_logic::when::upcoming as when_words;
 
 /// [`when_words`] inside a sentence: "Scheduled for tomorrow 08:00".
 pub(in crate::ui) fn when_in_sentence<Tz: TimeZone>(
@@ -85,7 +85,7 @@ pub(in crate::ui) fn when_in_sentence<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let words = mail_client::when::upcoming(at, now, zone, clock);
+    let words = mail_logic::when::upcoming(at, now, zone, clock);
     for day in ["Yesterday", "Today", "Tomorrow"] {
         if let Some(rest) = words.strip_prefix(day) {
             return format!("{}{rest}", day.to_lowercase());
@@ -95,7 +95,7 @@ where
 }
 
 /// The snooze menu's rows: the four times, each with [`snooze_hint`] of
-/// [`mail_client::snooze::snooze_until`] at its end, then Choose Time….
+/// [`mail_logic::snooze::snooze_until`] at its end, then Choose Time….
 pub(super) fn snooze_items<Tz: TimeZone>(
     now: DateTime<Utc>,
     zone: &Tz,
@@ -111,7 +111,7 @@ where
     SNOOZE
         .iter()
         .filter_map(|(says, phrase)| {
-            let at = mail_client::snooze::snooze_until(phrase, now, zone).ok()?;
+            let at = mail_logic::snooze::snooze_until(phrase, now, zone).ok()?;
             Some(row(
                 phrase,
                 says,
@@ -136,7 +136,7 @@ where
     if typed.trim().is_empty() {
         return Err(copy::fields::TYPE_A_TIME.to_owned());
     }
-    let at = mail_client::snooze::snooze_until(typed, now, zone)?;
+    let at = mail_logic::snooze::snooze_until(typed, now, zone)?;
     if at <= now {
         return Err(copy::errors::time_passed(&when_words(at, now, zone, clock)));
     }
@@ -219,7 +219,7 @@ pub(super) fn SnoozeMenu(
                     choosing.set(true);
                     return;
                 }
-                match mail_client::snooze::snooze_until(&phrase, crate::ui::clock::now(), &chrono::Local) {
+                match mail_logic::snooze::snooze_until(&phrase, crate::ui::clock::now(), &chrono::Local) {
                     Ok(at) => {
                         done();
                         snooze(at);

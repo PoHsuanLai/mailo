@@ -205,7 +205,7 @@ mod tests {
     }
 
     fn words(text: &str) -> super::super::Parsed {
-        parse(text, &Utc, &crate::query::unnamed)
+        parse(text, &Utc, &mail_logic::query::unnamed)
     }
 
     #[test]

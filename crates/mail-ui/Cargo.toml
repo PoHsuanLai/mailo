@@ -37,6 +37,7 @@ porter-client-inproc.workspace = true
 # `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
 porter-secrets.workspace = true
 mail-domain.workspace = true
+mail-logic.workspace = true
 # Everything the window knows of mail: values read, commands made, servers asked, all through the
 # one client. No `mail-core`, `mail-store` or `mail-runtime`: a store is not something the window
 # can name. `desktop` names the desktop's notification service, which the window speaks to itself.

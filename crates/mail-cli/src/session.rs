@@ -18,7 +18,7 @@
 
 use chrono::{DateTime, Utc};
 use mail_core::Store;
-use mail_core::scope::Scope;
+use mail_logic::scope::Scope;
 use mail_os::launcher::{Badge, Unread};
 use std::path::PathBuf;
 use std::sync::Arc;

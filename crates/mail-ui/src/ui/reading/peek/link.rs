@@ -1,5 +1,5 @@
 //! A link's destination in Peek: what the link said, the site it goes to and its whole address,
-//! read through the same honesty check as the link pill (`mail_client::trust::destination`), so a
+//! read through the same honesty check as the link pill (`mail_logic::trust::destination`), so a
 //! link whose text names another site says so before anyone goes there. Nothing is fetched to
 //! draw it: the card is the address, read, and Open Link is the only way to the page.
 
@@ -9,7 +9,7 @@ use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
 use ds::style::icon::family::PlateFamily;
 use ds::style::icon::render::IconPx;
-use mail_client::trust::Destination;
+use mail_logic::trust::Destination;
 
 use crate::ui::copy;
 use crate::ui::view::{LinkCard, Shell};
@@ -25,7 +25,7 @@ pub(super) struct Said {
 /// What the card says of `card`. The title is the link's own text when it has some that is not
 /// just its address; else the site.
 pub(super) fn said(card: &LinkCard) -> Said {
-    let (site, warning) = match mail_client::trust::destination(&card.text, &card.href) {
+    let (site, warning) = match mail_logic::trust::destination(&card.text, &card.href) {
         Destination::Web { registered, .. } => (registered, None),
         Destination::Lies { goes_to, claims } => {
             let warning = copy::errors::link_goes_elsewhere(&goes_to, &claims);

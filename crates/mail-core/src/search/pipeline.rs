@@ -42,7 +42,7 @@ pub fn prepare<Tz: TimeZone>(
     input: &str,
     source: &dyn Source,
     zone: &Tz,
-    label: &dyn crate::query::Names,
+    label: &dyn mail_logic::query::Names,
 ) -> Result<Prepared, CoreError> {
     let extracted = extract(input)?;
     // Trailing whitespace is significant: it means the last word is finished and must not be
@@ -179,7 +179,7 @@ pub fn search_list<Tz: TimeZone>(
     source: &dyn Source,
     affinity: &Affinity,
     zone: &Tz,
-    label: &dyn crate::query::Names,
+    label: &dyn mail_logic::query::Names,
     page: PageReq,
     now: DateTime<Utc>,
 ) -> Result<Searched, CoreError> {

@@ -4,7 +4,7 @@
 //! turns it into one. A failure is told as its own words, a semicolon, then the step.
 
 use mail_core::error::CoreError;
-use mail_core::{Remedy, SignInWith};
+use mail_logic::remedy::{Remedy, SignInWith};
 use porter_provider::Issuer;
 
 /// The step, as a clause that reads after the failure's own words.

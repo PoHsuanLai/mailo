@@ -34,7 +34,7 @@ pub struct Undo {
     /// A scheduled send the op took back, to be queued again for its time when this is undone.
     ///
     /// Not a patch: what the outbox holds is the message sealed as it was sent, and only the
-    /// window, which holds the keys to seal it again, can queue it. [`crate::act::take_back`]
+    /// window, which holds the keys to seal it again, can queue it. `mail_core::act::take_back`
     /// refuses an entry that has one.
     pub resend: Option<Resend>,
 }
@@ -45,7 +45,7 @@ pub struct Undo {
 pub struct Resend {
     pub draft: DraftId,
     pub at: DateTime<Utc>,
-    pub pictures: crate::compose::PictureSize,
+    pub pictures: crate::picture::PictureSize,
 }
 
 /// Which entry of the stack an undo means: what a caller carries back when it asks, so the ask
@@ -149,7 +149,7 @@ impl UndoStack {
 /// Only the kind of change the forward op sent: an archive that was local-only (no `remote`)
 /// has nothing to reverse on the server, and a thread's snooze never had a server half at all.
 /// `None` when the inverse changes nothing of that kind.
-pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIntent> {
+pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIntent> {
     match remote {
         RemoteIntent::SetMailbox { .. } => {
             let mut by_role: BTreeMap<MailboxRole, Vec<MessageId>> = BTreeMap::new();
@@ -228,11 +228,11 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
         // Nor a copy, for the same reason: the copy's address arrives with that folder's next
         // sync, or with the server's answer. The undo takes it out of the folder here, and one
         // still waiting is taken out of the outbox as a filing is; a copy the server has made
-        // is not taken back at all (`crate::act::take_back` refuses it), or the next sync would
+        // is not taken back at all (`mail_core::act::take_back` refuses it), or the next sync would
         // put it back in the folder.
         //
         // Nor, above all, a deletion forever: the server's copy is gone once it is sent, and
-        // the window never offers one an undo (`crate::destroy`).
+        // the window never offers one an undo (`mail_core::destroy`).
         //
         // A draft's copy on the server follows the draft, which has undo of its own: a discard
         // taken back puts the draft here, and its next save puts a copy there again.

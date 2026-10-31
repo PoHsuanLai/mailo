@@ -1,14 +1,14 @@
 //! Remind Me If No Reply, chosen as the message is written: under Send ▾ only, and a Remind row
 //! that is drawn only while a reminder is set, whose menu turns it Off.
 //!
-//! The times are the thread menu's ([`mail_client::follow_up::CHOICES`]), counted from when the message
+//! The times are the thread menu's ([`mail_logic::follow_up::CHOICES`]), counted from when the message
 //! leaves rather than from when the row was set, so a message scheduled for Monday and "In 3 days"
-//! comes back on Thursday. A typed time goes through [`mail_client::follow_up::due`], which reads it as
+//! comes back on Thursday. A typed time goes through [`mail_logic::follow_up::due`], which reads it as
 //! snooze does. The reminder is held until the message has left (`mail_client::follow_up`).
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 
 use super::super::menu::{MenuItem, MenuKey, Right, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};
@@ -32,7 +32,7 @@ pub(in crate::ui) const PICK_KEY: &str = "at";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Remind {
     Off,
-    /// One of [`mail_client::follow_up::CHOICES`], by its key, counted from when the message leaves.
+    /// One of [`mail_logic::follow_up::CHOICES`], by its key, counted from when the message leaves.
     After(&'static str),
     /// A time typed into "Pick a time…".
     At(DateTime<Utc>),
@@ -52,7 +52,7 @@ impl Remind {
     {
         match self {
             Remind::Off => Ok(None),
-            Remind::After(key) => mail_client::follow_up::due(key, leaves, zone, clock)
+            Remind::After(key) => mail_logic::follow_up::due(key, leaves, zone, clock)
                 .map(Some)
                 .map_err(String::from),
             Remind::At(at) if at <= leaves => Err(format!(
@@ -75,7 +75,7 @@ impl Remind {
     {
         match self {
             Remind::Off => "Off".to_owned(),
-            Remind::After(key) => mail_client::follow_up::CHOICES
+            Remind::After(key) => mail_logic::follow_up::CHOICES
                 .iter()
                 .find(|(choice, _)| *choice == key)
                 .map(|(_, says)| format!("{says}, if no reply"))
@@ -101,10 +101,10 @@ where
         right: Right::Check(on),
         ..MenuItem::icon(key, icon, name)
     };
-    let mut items: Vec<MenuItem> = mail_client::follow_up::CHOICES
+    let mut items: Vec<MenuItem> = mail_logic::follow_up::CHOICES
         .iter()
         .filter_map(|(key, says)| {
-            let at = mail_client::follow_up::due(key, now, zone, clock).ok()?;
+            let at = mail_logic::follow_up::due(key, now, zone, clock).ok()?;
             Some(row(
                 key,
                 Icon::Bell,
@@ -148,7 +148,7 @@ pub(in crate::ui) fn pick_remind(page: &mut Page, key: &str) {
     }
     if key == OFF_KEY {
         page.remind = Remind::Off;
-    } else if let Some((choice, _)) = mail_client::follow_up::CHOICES
+    } else if let Some((choice, _)) = mail_logic::follow_up::CHOICES
         .iter()
         .find(|(choice, _)| *choice == key)
     {
@@ -172,7 +172,7 @@ where
     let Float::PickRemind(typed) = &page.float else {
         return Err("Type a time".to_owned());
     };
-    let at = mail_client::follow_up::due(typed, now, zone, clock)?;
+    let at = mail_logic::follow_up::due(typed, now, zone, clock)?;
     page.remind = Remind::At(at);
     page.float = Float::Closed;
     page.touch();
@@ -215,7 +215,7 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
     };
     let now = super::super::clock::now();
     let hours = super::super::clock::hours();
-    let reading = mail_client::follow_up::due(&typed, now, &chrono::Local, hours);
+    let reading = mail_logic::follow_up::due(&typed, now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
     let (validity, says) = match &reading {
         Ok(at) => (

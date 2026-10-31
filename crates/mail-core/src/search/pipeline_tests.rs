@@ -16,7 +16,7 @@ fn searched(input: &str, store: &mail_store::SqliteStore) -> super::Searched {
         store,
         &Affinity::default(),
         &Utc,
-        &crate::query::unnamed,
+        &mail_logic::query::unnamed,
         first(100),
         at(10_000),
     )
@@ -137,7 +137,7 @@ fn a_search_asks_for_one_page_and_a_bounded_window_never_every_match() {
             &asked,
             &Affinity::default(),
             &Utc,
-            &crate::query::unnamed,
+            &mail_logic::query::unnamed,
             first(100),
             at(0),
         )

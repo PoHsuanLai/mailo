@@ -10,7 +10,7 @@
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 use std::sync::{Arc, OnceLock};
 
 /// Now, as the window's reminders read it.

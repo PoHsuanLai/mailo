@@ -8,8 +8,8 @@ use dioxus::prelude::*;
 use mail_client::Client;
 use mail_client::folder::Refusal;
 use mail_client::query::Mailboxes as ClientMailboxes;
-use mail_client::undo::{Undo, reverse_folder};
 use mail_domain::{FolderError, FolderWork, LabelId, MailboxRef, NonEmpty, Subscription};
+use mail_logic::undo::{Undo, reverse_folder};
 use porter_core::AccountId;
 
 /// Every account in `scope` (empty meaning all), with what the section needs of each, from the

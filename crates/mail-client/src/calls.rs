@@ -8,8 +8,8 @@
 
 mod act {
     use crate::Client;
-    use mail_core::undo::Undo;
     use mail_domain::*;
+    use mail_logic::undo::Undo;
 
     /// What the client calls in `mail_core::act`.
     #[derive(Clone, Copy, Debug)]
@@ -277,7 +277,7 @@ mod compose {
             ask: mail_core::pgp::Ask<'_>,
             draft: DraftId,
             leaves: Leaves,
-            pictures: PictureSize,
+            pictures: mail_logic::picture::PictureSize,
             now: DateTime<Utc>,
         ) -> Result<(Draft, mail_mime::Posting), SendError> {
             mail_core::compose::queue_sized(
@@ -793,7 +793,7 @@ mod print {
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::error::CoreError;
     use mail_core::html_document::*;
-    use mail_core::when::Clock;
+    use mail_logic::when::Clock;
     use mail_reader::print::{Options, Pages};
 
     /// What the client calls in `mail_core::html_document`.

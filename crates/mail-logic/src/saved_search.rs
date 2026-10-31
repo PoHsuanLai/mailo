@@ -107,7 +107,7 @@ impl Draft {
 
 /// `filter` in the search language, when those words read back as exactly `filter`.
 ///
-/// Written by [`crate::rules::condition`] and then read again, so a filter the language cannot
+/// Written by [`crate::query::condition`] and then read again, so a filter the language cannot
 /// say — `All`, a folder, a date that is not a midnight here, an account, a label since renamed — is `None`
 /// rather than words that would quietly save as something else.
 pub fn written<Tz: TimeZone>(filter: &Filter, names: &Known<'_>, zone: &Tz) -> Option<String> {
@@ -119,7 +119,7 @@ pub fn written<Tz: TimeZone>(filter: &Filter, names: &Known<'_>, zone: &Tz) -> O
             .map(|(name, _)| name.clone())
             .unwrap_or_default()
     };
-    let words = crate::rules::condition(filter, &name);
+    let words = crate::query::condition(filter, &name);
     let again = crate::query::parse_with(&words, zone, names);
     (again == *filter).then_some(words)
 }

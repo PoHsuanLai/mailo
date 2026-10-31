@@ -13,8 +13,8 @@ use super::{Motion, act_all, motion};
 use crate::ui::view::{Place, Shell, Source};
 use dioxus::prelude::*;
 use ds::prelude::*;
-use mail_client::mailbox_filter::role_of;
 use mail_domain::*;
+use mail_logic::mailbox_filter::role_of;
 
 /// How far the pointer must travel before a press on a row is a drag, in pixels.
 const LIVE: f64 = 8.0;

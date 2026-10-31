@@ -25,7 +25,7 @@ pub(super) struct World<'a> {
     /// What was opened and put aside, for Recent while nothing is typed.
     pub today: &'a Today,
     /// How the person keeps the hours, for the times Recent's rows say.
-    pub hours: mail_client::when::Clock,
+    pub hours: mail_logic::when::Clock,
 }
 
 /// The panel's rows for what it lists.

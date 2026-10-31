@@ -20,8 +20,8 @@ use super::part::{Drawn, picture};
 use crate::ui::copy;
 use mail_client::Client;
 use mail_client::attachment_image;
-use mail_client::when::Clock;
 use mail_domain::{BlobId, MessageId};
+use mail_logic::when::Clock;
 use std::fmt::Debug;
 
 /// How many leading bytes the rule reads.

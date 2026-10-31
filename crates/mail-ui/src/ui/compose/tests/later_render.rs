@@ -89,7 +89,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
                 life::Dated {
                     now: Utc::now(),
                     zone: &chrono::Local,
-                    clock: mail_core::when::Clock::H24,
+                    clock: mail_logic::when::Clock::H24,
                 },
             );
             let Ok(Sent::Queued {

@@ -27,7 +27,7 @@ const ALSO_SIGNS_AS: &[(&str, &[&str])] = &[
 /// Whose `Authentication-Results` to believe for mail that came to an account with `plan`.
 pub fn receiver(plan: &AccountPlan) -> Receiver {
     let host = plan.incoming.served_from();
-    let Some(registered) = host.as_deref().and_then(crate::trust::registered) else {
+    let Some(registered) = host.as_deref().and_then(mail_logic::trust::registered) else {
         return Receiver::Topmost;
     };
     let mut domains = vec![registered.clone()];
