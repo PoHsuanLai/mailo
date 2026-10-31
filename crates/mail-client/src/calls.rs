@@ -794,7 +794,7 @@ mod print {
     use mail_core::error::CoreError;
     use mail_core::html_document::*;
     use mail_core::when::Clock;
-    use mail_mime::print::{Options, Pages};
+    use mail_reader::print::{Options, Pages};
 
     /// What the client calls in `mail_core::html_document`.
     #[derive(Clone, Copy, Debug)]

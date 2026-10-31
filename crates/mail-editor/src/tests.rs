@@ -12,7 +12,7 @@ mod menus;
 mod strategies;
 mod writers;
 
-use mail_mime::{RemoteImages, SafeUrl, SanitizePolicy, from_html, sanitize};
+use mail_reader::{RemoteImages, SafeUrl, SanitizePolicy, from_html, sanitize};
 use proptest::prelude::*;
 
 use super::*;

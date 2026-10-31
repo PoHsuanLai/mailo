@@ -1,6 +1,6 @@
 //! Who schedules fetching: this process, or the `mailo watch` that runs beside it.
 //!
-//! A watch (`mail_core::ipc::watching`) is the session's sync engine: it holds IDLE where the
+//! A watch (`mail_agent::ipc::watching`) is the session's sync engine: it holds IDLE where the
 //! server offers it, polls where it does not, and drains the outbox. A window that also polled
 //! and listened would be a second writer on the same SQLite file, and two of them sometimes end
 //! a pass with `database is locked`. So where a watch runs the window leaves scheduled fetching

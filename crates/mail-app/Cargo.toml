@@ -92,9 +92,10 @@ anyview = ["mail-ui/anyview"]
 
 [dependencies]
 porter-core.workspace = true
-# The desktop's notifications and PDF previews are mail-core features the window and the watch use;
+# PDF previews are a mail-core feature, and the desktop's notifications a mail-agent one, that the window and the watch use;
 # they stay on in a build without the desktop extras (`quire-desktop`).
-mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
+mail-core = { workspace = true, features = ["pdf", "keyring"] }
+mail-agent = { workspace = true, features = ["desktop"] }
 # The process records its runtime, environment, Profile and OAuth clients here, for the three below.
 mail-edge.workspace = true
 # The command line, and `mailo watch`'s launcher badge the window keeps its Dock tile with.
@@ -166,6 +167,7 @@ pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
 # The throwaway certificate authority the window's S/MIME tests build their fixtures with.
 mail-crypto = { workspace = true, features = ["testing"] }
 mail-mime.workspace = true
+mail-reader.workspace = true
 # A watch's scratch directory (`background/tests.rs`).
 tempfile = "3"
 chrono.workspace = true

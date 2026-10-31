@@ -114,13 +114,13 @@ fn every_ask_reads_back_from_the_command_line_it_writes() {
         (mail_core::notify::Act::Reply, Reply(one).args()),
         (mail_core::notify::Act::Archive, Archive(one).args()),
     ] {
-        let launch = mail_core::notify::desktop::Launch {
+        let launch = mail_agent::notify::desktop::Launch {
             opens: mail_core::notify::Opens::Thread(one),
             act,
         };
         assert_eq!(launch.args(), want);
     }
-    let summary = mail_core::notify::desktop::Launch {
+    let summary = mail_agent::notify::desktop::Launch {
         opens: mail_core::notify::Opens::Inbox(mail_domain::id::account_id_from_uuid(
             uuid::Uuid::from_u128(0xacc),
         )),

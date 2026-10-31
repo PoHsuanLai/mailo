@@ -23,15 +23,15 @@ has to remember to read again after a write.
 ## Crates
 
 ```
-mail-domain  mime  proto  pim            (pure)
-mail-store, mail-net, mail-secrets → mail-runtime → mail-engine → mail-core    (I/O)
+mail-domain  mime  reader  proto  pim   (pure)
+mail-store, mail-net, mail-secrets → mail-runtime → mail-engine → mail-core → mail-agent    (I/O)
 mail-client  → mail-core, mail-store, mail-domain, tokio, notify   (no dioxus, no ds)
 mail-ui      → mail-client, the pure crates, dioxus, ds            (the window)
 mail-app     → mail-ui, mail-client, mail-core                     (binary, CLI, background)
 ```
 
 The fence is the compiler: `mail-ui`'s `Cargo.toml` names no `mail-core`, `mail-store`,
-`mail-net`, `mail-secrets`, `mail-runtime` or `mail-engine` among its dependencies, so the window cannot name the store crate. `Stored`
+`mail-net`, `mail-secrets`, `mail-runtime`, `mail-engine` or `mail-agent` among its dependencies, so the window cannot name the store crate. `Stored`
 still shows the store's API (`Patch`, `StoreError`, rows) to the window that holds one. Its tests
 have them as dev-dependencies, to seed a store as a fixture and hand the window a client over it
 (`fixtures::client`); that code is compiled for tests alone. `mail-core` re-exports

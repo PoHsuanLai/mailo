@@ -1,8 +1,19 @@
 //! Inline images, and the media type that must never be echoed back.
 
-use crate::support::block::part;
 use mail_domain::Inline;
 use mail_mime::{INLINE_BUDGET, ParsedPart, embed_inline, embed_inline_listed};
+
+fn part(cid: &str, mime: &str, bytes: &[u8]) -> ParsedPart {
+    ParsedPart {
+        name: "logo".to_owned(),
+        mime: mime.to_owned(),
+        bytes: bytes.to_vec(),
+        inline: Inline::Embedded {
+            cid: cid.to_owned(),
+        },
+        remote: None,
+    }
+}
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n-pretend-this-is-an-image";
 

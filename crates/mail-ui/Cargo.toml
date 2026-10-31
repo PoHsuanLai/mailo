@@ -46,6 +46,7 @@ mail-client = { workspace = true, features = ["desktop"] }
 mail-os.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
 mail-mime.workspace = true
+mail-reader.workspace = true
 mail-crypto = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true
 mail-pim.workspace = true
@@ -144,6 +145,7 @@ mail-store = { workspace = true, features = ["testing"] }
 mail-client = { workspace = true, features = ["testing"] }
 # The doubles at the runtime's seams (`mail_core::testing`): the program never has them.
 mail-core = { workspace = true, features = ["testing"] }
+mail-agent = { workspace = true, features = ["desktop"] }
 porter-secrets = { workspace = true, features = ["testing"] }
 # Read back by the window's own tests (reader blocks, print, PGP/S-MIME composer); not used by the
 # window itself, which gets them from `mail-core` and quire.

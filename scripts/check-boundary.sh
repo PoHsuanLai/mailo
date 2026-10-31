@@ -7,7 +7,7 @@
 set -uo pipefail
 
 # Package names, as `cargo tree -p` takes them: the pure crates are published as `mailo-*`.
-PURE=(mailo-domain mailo-mime mailo-crypto mailo-archive mailo-proto mailo-pim mailo-editor)
+PURE=(mailo-domain mailo-mime mailo-crypto mailo-archive mailo-proto mailo-pim mailo-editor mailo-reader)
 # Nor porter's client, its bus vocabulary or quire's capability probe: the sans-I/O crates know
 # nothing of the desktop's accountd. Nor anyview (the attachment peek and its card): only
 # `mail-ui` draws, behind its `anyview` feature.
@@ -16,7 +16,7 @@ FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus 
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
 # renderer under it, so that the two front-ends (`mail-ui`, and `mail-cli`) sit over one
 # core that knows neither.
-CORE=(mail-core mail-client)
+CORE=(mail-core mail-agent mail-client)
 FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek mail-appkit)
 # `mail-os` is the app layer's OS integration (the launcher's count, the login item, the mail-link
 # handler, what an operation says): it does no drawing, so it may never reach the toolkit or the
@@ -77,11 +77,11 @@ if [ "$os_fail" -eq 0 ]; then
 fi
 fail=$((fail | os_fail))
 
-# `mail-store`, `mail-net`, `mail-secrets`, `mail-runtime` and `mail-engine` sit between the pure
+# `mail-store`, `mail-net`, `mail-secrets`, `mail-runtime`, `mail-engine` and `mail-agent` sit between the pure
 # crates and the core, and draw nothing either: anyview, which peeks at a file and draws a card, is `mail-ui`'s alone (its
 # `anyview` feature).
 lower_fail=0
-for crate in mail-store mail-net mail-secrets mail-runtime mail-engine; do
+for crate in mail-store mail-net mail-secrets mail-runtime mail-engine mail-agent; do
   for dep in anyview-core anyview-peek; do
     if cargo tree -p "$crate" -i "$dep" 2>/dev/null | grep -q .; then
       echo "LEAK: $crate depends on $dep"
@@ -91,7 +91,7 @@ for crate in mail-store mail-net mail-secrets mail-runtime mail-engine; do
   done
 done
 if [ "$lower_fail" -eq 0 ]; then
-  echo "anyview boundary holds: mail-store, mail-net, mail-secrets, mail-runtime and mail-engine reach neither anyview-core nor anyview-peek"
+  echo "anyview boundary holds: mail-store, mail-net, mail-secrets, mail-runtime, mail-engine and mail-agent reach neither anyview-core nor anyview-peek"
 fi
 fail=$((fail | lower_fail))
 
@@ -135,20 +135,20 @@ fi
 # The crates below the window name no part of it: what a sidebar, a toast, a sheet or a button
 # shows is the window's to decide, so a lower crate says what happened and what a count is of,
 # never where or how it is drawn. Comments are held to it too, and a word that is a domain term
-# somewhere (a stylesheet, a window of time) is rephrased there, not listed. Left out: `notify/`,
+# somewhere (a stylesheet, a window of time) is rephrased there, not listed. Left out: `mail-agent`'s `notify/`,
 # where "toast" is the operating system's own word, the one MIME type that ends in `.sheet`, and
 # the SQL migrations, which are applied
 # files and not edited. Words are matched in lower case; a capitalised one is caught in comments.
 UI_WORDS='sidebar|toast|toolbar|dialog|modal|popover|tooltip|pane|button|sheet'
-LOWER_CRATES=(crates/mail-core crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-net crates/mail-secrets crates/mail-runtime crates/mail-engine)
+LOWER_CRATES=(crates/mail-core crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-net crates/mail-secrets crates/mail-runtime crates/mail-engine crates/mail-agent)
 if grep -rnE "\\b($UI_WORDS)s?\\b" "${LOWER_CRATES[@]}" --include='*.rs' \
-  | grep -vE '^crates/mail-core/src/notify(/|\.rs)|openxmlformats-officedocument'; then
+  | grep -vE '^crates/mail-core/src/notify(/|\.rs)|^crates/mail-agent/src/notify(/|\.rs)|openxmlformats-officedocument'; then
   echo "a crate below the window names a part of the window: say what happened and let mail-ui word it"
   fail=1
 fi
 CAPS='Sidebar|Toast|Toolbar|Dialog|Modal|Popover|Tooltip|Pane|Button|Sheet'
 if grep -rnE "^[^:]+:[0-9]+:[[:space:]]*//.*\\b($CAPS)s?\\b" "${LOWER_CRATES[@]}" --include='*.rs' \
-  | grep -vE '^crates/mail-core/src/notify(/|\.rs)'; then
+  | grep -vE '^crates/mail-core/src/notify(/|\.rs)|^crates/mail-agent/src/notify(/|\.rs)'; then
   echo "a crate below the window names a part of the window in a comment: say what happened and let mail-ui word it"
   fail=1
 fi
@@ -198,7 +198,7 @@ if grep -rnE 'Result<.*, *String>' crates/mail-core/src --include='*.rs' \
 fi
 
 # The libraries start no runtime and read no environment. The application (`mail-edge`)
-# owns the one tokio runtime and waits on `async` work there; `mail-core`, `mail-net`, `mail-secrets`, `mail-runtime`, `mail-engine` and
+# owns the one tokio runtime and waits on `async` work there; `mail-core`, `mail-net`, `mail-secrets`, `mail-runtime`, `mail-engine`, `mail-agent` and
 # `mail-store` hand every operation that waits on a network or the keyring back as a future, and
 # take what they need (the secrets, the environment, the clock) from the `Mail` handle.
 # So no library source builds a runtime or blocks on one, and `mail-core` reads no variable and
@@ -211,7 +211,7 @@ library_code() { # <dir>...: "file:line: text" for every non-comment, non-test l
       $0 !~ /^[[:space:]]*\/\// { print f ":" NR ": " $0 }' "$file"
   done < <(find "$@" -name '*.rs' ! -name 'tests.rs' ! -name '*_tests.rs' ! -path '*/tests/*')
 }
-if library_code crates/mail-core/src crates/mail-net/src crates/mail-secrets/src crates/mail-runtime/src crates/mail-engine/src crates/mail-store/src \
+if library_code crates/mail-core/src crates/mail-net/src crates/mail-secrets/src crates/mail-runtime/src crates/mail-engine/src crates/mail-agent/src crates/mail-store/src \
   | grep -E 'new_current_thread|new_multi_thread|Runtime::new\(|runtime::Builder::new|OnceLock<.*Runtime>'; then
   echo "a library builds a tokio runtime: make the function async and let mail-edge (crates/mail-edge/src/lib.rs) wait on it"
   fail=1
@@ -222,9 +222,9 @@ if library_code crates/mail-core/src | grep -E '\bblock_on\('; then
 fi
 # The desktop notification adapter (`notify/desktop.rs`, behind the `desktop` feature) asks for the
 # program's own path to relaunch it on a click; it is the one place.
-if library_code crates/mail-core/src | grep -vE '^crates/mail-core/src/notify/desktop\.rs:' \
+if library_code crates/mail-core/src crates/mail-agent/src | grep -vE '^crates/mail-agent/src/notify/desktop\.rs:' \
   | grep -E 'env::var(_os)?\(|env::current_exe\('; then
-  echo "mail-core reads the environment: take it from mail_core::Environment, which mail-app builds in main"
+  echo "mail-core or mail-agent reads the environment: take it from mail_core::Environment, which mail-app builds in main"
   fail=1
 fi
 # And no terminal: the command line is `mail-cli`. `mail-core` returns typed outcomes
@@ -317,14 +317,14 @@ fi
 # private to it, is not reached for by name: `.connection()`, `.reader()`, and the testing
 # `raw_connection` that only `mail-store`'s own tests use. Comment lines are not
 # code and are not counted.
-for crate in mail-core mail-net mail-secrets mail-runtime mail-engine mail-app mail-cli mail-intents mail-edge; do
+for crate in mail-core mail-net mail-secrets mail-runtime mail-engine mail-agent mail-app mail-cli mail-intents mail-edge; do
   if grep -nE '^[[:space:]]*rusqlite[[:space:]]*=' "crates/$crate/Cargo.toml"; then
     echo "crates/$crate/Cargo.toml: $crate must not depend on rusqlite: ask the store (mail_store), or mail_store::testing in a test"
     fail=1
   fi
 done
 if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b' \
-  crates/mail-core crates/mail-net crates/mail-secrets crates/mail-runtime crates/mail-engine crates/mail-app crates/mail-cli crates/mail-intents crates/mail-edge --include='*.rs' \
+  crates/mail-core crates/mail-net crates/mail-secrets crates/mail-runtime crates/mail-engine crates/mail-agent crates/mail-app crates/mail-cli crates/mail-intents crates/mail-edge --include='*.rs' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "SQL above mail-store: add the typed call to mail_store (or a seeding helper to mail_store::testing) instead"
   fail=1
@@ -332,9 +332,9 @@ fi
 
 # A library crate pays for nothing it was not asked for: its default features carry none of the
 # platform keyring, the desktop's extras, the Secret Service or the test doubles. `mail-crypto`'s
-# halves and `mail-core`'s `desktop` and `pdf` are the defaults a plain user expects; the rest the
+# halves and `mail-core`'s `pdf` and `mail-agent`'s `desktop` are the defaults a plain user expects; the rest the
 # program names. (`mail-app` is the program: its own `quire-desktop` default is its build's choice.)
-for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-store mail-proto mail-net mail-secrets mail-runtime mail-engine mail-core; do
+for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-reader mail-store mail-proto mail-net mail-secrets mail-runtime mail-engine mail-agent mail-core; do
   if grep -E '^default[[:space:]]*=' "crates/$crate/Cargo.toml" | grep -E 'quire-desktop|keyring|oo7|testing'; then
     echo "crates/$crate/Cargo.toml: a library's default features must not include quire-desktop, keyring, oo7 or testing"
     fail=1
@@ -374,11 +374,11 @@ fi
 fail=$((fail | under_fail))
 
 # The window names no store: `mail-ui`'s dependencies, dev-dependencies aside (which seed a store as
-# a fixture for its tests), hold no `mail-core`, `mail-store`, `mail-net`, `mail-secrets`, `mail-runtime` or `mail-engine`. Everything it knows
+# a fixture for its tests), hold no `mail-core`, `mail-agent`, `mail-store`, `mail-net`, `mail-secrets`, `mail-runtime` or `mail-engine`. Everything it knows
 # of mail comes from `mail-client`.
-if awk '/^\[/ { dev = ($0 ~ /dev-dependencies/) } !dev && /^(mail-core|mail-store|mail-net|mail-secrets|mail-runtime|mail-engine)[ .=]/' \
+if awk '/^\[/ { dev = ($0 ~ /dev-dependencies/) } !dev && /^(mail-core|mail-agent|mail-store|mail-net|mail-secrets|mail-runtime|mail-engine)[ .=]/' \
   crates/mail-ui/Cargo.toml | grep -q .; then
-  echo "crates/mail-ui/Cargo.toml names mail-core, mail-store, mail-net, mail-secrets, mail-runtime or mail-engine outside its dev-dependencies: go through mail-client"
+  echo "crates/mail-ui/Cargo.toml names mail-core, mail-agent, mail-store, mail-net, mail-secrets, mail-runtime or mail-engine outside its dev-dependencies: go through mail-client"
   fail=1
 fi
 

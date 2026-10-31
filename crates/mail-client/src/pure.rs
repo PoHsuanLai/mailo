@@ -88,9 +88,9 @@ pub mod invite {
     pub use mail_core::invite::{Answered, repeats_words, say_when};
 }
 pub mod ipc {
-    pub use mail_core::ipc::agent;
+    pub use mail_agent::ipc::agent;
     pub mod watching {
-        pub use mail_core::ipc::watching::running;
+        pub use mail_agent::ipc::watching::running;
     }
 }
 pub mod mail {
@@ -98,9 +98,8 @@ pub mod mail {
 }
 pub mod message {
     pub use mail_core::message::{
-        Bodies, FIRST_PAGE, FOUND_CURRENT, FOUND_MARK, FrameBody, Frames, INLINE_BYTES, Invited,
-        Key, Looks, Offer, Opening, Prefer, Protection, Receipt, Scheme, Sealed, Sent, Tried,
-        ahead,
+        Bodies, FIRST_PAGE, Frames, INLINE_BYTES, Invited, Key, Looks, Offer, Opening, Protection,
+        Receipt, Scheme, Sealed, Sent, Tried, ahead,
     };
 }
 pub mod notify {
@@ -109,15 +108,15 @@ pub mod notify {
     };
     #[cfg(feature = "desktop")]
     pub mod desktop {
-        pub use mail_core::notify::desktop::Desktop;
+        pub use mail_agent::notify::desktop::Desktop;
         /// What the app hands the macOS notification centre's banners through, and the click it
         /// hears back.
         #[cfg(target_os = "macos")]
-        pub use mail_core::notify::desktop::heard;
+        pub use mail_agent::notify::desktop::heard;
     }
     #[cfg(all(feature = "desktop", target_os = "macos"))]
     pub mod banner {
-        pub use mail_core::notify::banner::{Banner, Click, Posts, Pressed};
+        pub use mail_agent::notify::banner::{Banner, Click, Posts, Pressed};
     }
 }
 pub mod offline {

@@ -1,0 +1,65 @@
+[package]
+name = "mail-agent"
+# The app side: I/O and policy, not a library for others.
+publish = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The per-user watch's lock and door, and the desktop notifications that announce new mail"
+repository = "https://github.com/PoHsuanLai/mailo"
+authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
+
+# What lives beside the logic as a process: the one `mailo watch` per profile (its lock, its door
+# and the conversation the window has with it, `ipc`) and where a notification goes once
+# `mail_core::notify` has decided to raise it (`notify`). It builds on `mail-core`, which keeps the
+# seams it calls through (`Notifier`, `Announce`, the watch's `Asked`) and never names this crate.
+
+[features]
+# On for a plain `cargo test -p mail-agent`; a consumer of the watch's door alone
+# (`default-features = false`) gets none of the desktop's adapters.
+default = ["desktop"]
+# The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
+# `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface; on
+# macOS the banners are the app's, handed in through `notify::banner::Posts`. Without it a watch
+# announces through whatever `Notifier` it is handed.
+desktop = ["dep:notify-rust", "dep:zbus"]
+
+[dependencies]
+mail-core.workspace = true
+mail-domain.workspace = true
+mail-store.workspace = true
+porter-core.workspace = true
+latchkey.workspace = true
+# The door's stream, for its receive timeout: the version latchkey's own `Stream` is.
+interprocess = "2"
+serde.workspace = true
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util", "sync"] }
+log.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+
+# The notification server's `ActivationToken`, `ActionInvoked` and `NotificationClosed` signals
+# (`notify/click.rs`), which `notify-rust` does not surface. Blocking, on a thread of its own, and
+# without the `tokio` feature, as everywhere in this tree (CONSUMING.md section 1). Already in the
+# lock through notify-rust, at this version and with these (its default) features. MIT.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus = { version = "5.19", optional = true }
+
+# Desktop notifications for new mail (`notify/desktop.rs`), one API over each platform's own: the
+# freedesktop interface on the session bus (through zbus, already in the lock through the
+# keyring's Secret Service store) and toasts on Windows (tauri-winrt-notification). MIT OR
+# Apache-2.0, and so are both backends. Not on macOS: notify-rust's backend there
+# (mac-notification-sys) waits on a thread per banner and polls the centre for each to go, which
+# never ends for a banner nobody clears; the app posts them instead (`notify::banner::Posts`).
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify-rust = { version = "4.18", optional = true }
+
+[dev-dependencies]
+mail-domain = { workspace = true, features = ["testing"] }
+tempfile = "3"
+tokio = { version = "1", features = ["test-util"] }
+
+[lints]
+workspace = true

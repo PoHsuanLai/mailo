@@ -17,7 +17,8 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 # is dispatched by `mail-app`.
 
 [dependencies]
-mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
+mail-core = { workspace = true, features = ["pdf", "keyring"] }
+mail-agent = { workspace = true, features = ["desktop"] }
 mail-domain.workspace = true
 mail-store.workspace = true
 mail-client.workspace = true
@@ -25,6 +26,7 @@ mail-edge.workspace = true
 mail-os.workspace = true
 mail-ui.workspace = true
 mail-mime.workspace = true
+mail-reader.workspace = true
 # OpenPGP and S/MIME, and the mbox and Maildir the import and export read and write.
 mail-crypto = { workspace = true, features = ["openpgp", "smime"] }
 mail-archive.workspace = true

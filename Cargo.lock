@@ -5111,6 +5111,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-agent"
+version = "0.1.0"
+dependencies = [
+ "interprocess",
+ "latchkey",
+ "log",
+ "mail-core",
+ "mail-store",
+ "mailo-domain",
+ "notify-rust",
+ "porter-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+ "zbus",
+]
+
+[[package]]
 name = "mail-app"
 version = "0.1.0"
 dependencies = [
@@ -5128,6 +5149,7 @@ dependencies = [
  "image",
  "latchkey",
  "log",
+ "mail-agent",
  "mail-cli",
  "mail-client",
  "mail-core",
@@ -5141,6 +5163,7 @@ dependencies = [
  "mailo-crypto",
  "mailo-domain",
  "mailo-mime",
+ "mailo-reader",
  "pdfrum",
  "porter-core",
  "porter-secrets",
@@ -5176,6 +5199,7 @@ dependencies = [
  "chrono",
  "image",
  "log",
+ "mail-agent",
  "mail-client",
  "mail-core",
  "mail-edge",
@@ -5191,6 +5215,7 @@ dependencies = [
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
+ "mailo-reader",
  "porter-core",
  "porter-provider",
  "porter-secrets",
@@ -5207,6 +5232,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "log",
+ "mail-agent",
  "mail-client",
  "mail-core",
  "mail-runtime",
@@ -5216,6 +5242,7 @@ dependencies = [
  "mailo-editor",
  "mailo-mime",
  "mailo-proto",
+ "mailo-reader",
  "notify",
  "parking_lot",
  "porter-core",
@@ -5236,7 +5263,6 @@ dependencies = [
  "chrono",
  "futures-util",
  "image",
- "interprocess",
  "latchkey",
  "log",
  "mail-engine",
@@ -5251,7 +5277,7 @@ dependencies = [
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
- "notify-rust",
+ "mailo-reader",
  "nucleo-matcher",
  "pdfrum",
  "porter-capability",
@@ -5275,7 +5301,6 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "uuid",
- "zbus",
  "zeroize",
 ]
 
@@ -5520,6 +5545,7 @@ dependencies = [
  "ds-shell",
  "image",
  "log",
+ "mail-agent",
  "mail-appkit",
  "mail-client",
  "mail-core",
@@ -5534,6 +5560,7 @@ dependencies = [
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
+ "mailo-reader",
  "pdfrum",
  "porter-capability",
  "porter-client-inproc",
@@ -5628,6 +5655,7 @@ version = "0.1.0"
 dependencies = [
  "mailo-domain",
  "mailo-mime",
+ "mailo-reader",
  "proptest",
  "unicode-segmentation",
 ]
@@ -5636,13 +5664,10 @@ dependencies = [
 name = "mailo-mime"
 version = "0.1.0"
 dependencies = [
- "ammonia",
  "base64 0.22.1",
  "chardetng",
  "chrono",
- "cssparser 0.38.0",
  "encoding_rs",
- "html5ever 0.40.1",
  "mail-builder",
  "mail-parser",
  "mailo-domain",
@@ -5683,6 +5708,21 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "mailo-reader"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "base64 0.22.1",
+ "chrono",
+ "cssparser 0.38.0",
+ "html5ever 0.40.1",
+ "mailo-domain",
+ "mailo-mime",
+ "proptest",
+ "url",
 ]
 
 [[package]]

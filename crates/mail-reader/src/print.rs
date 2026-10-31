@@ -1,0 +1,782 @@
+//! A message, or a whole thread, as one printable HTML document.
+//!
+//! The body takes the reader's path: an HTML part is sanitized with remote images blocked and
+//! lowered to blocks, and plain text is lowered to the same blocks. The document is then
+//! written from those blocks by this module and nothing else. No byte of the message's own
+//! markup reaches the output — only what a [`Block`] can say, every piece of text escaped here —
+//! so a script, an event handler, a `<meta refresh>`, a form or a stylesheet has no way through
+//! even if the sanitizer missed it.
+//!
+//! Self-contained on purpose: printing happens from a file on disk or a webview with the
+//! network nowhere in the picture, and a printout that fetched something would tell the sender
+//! it had been printed. The only URLs that load anything are `data:` URIs: those this crate
+//! built from the message's own parts, through [`mail_mime::embeddable`]'s allowlist, and, for a
+//! message whose remote images the reader consented to ([`Remote::Allowed`]), those the caller
+//! fetched already and hands in, held to the same allowlist. Nothing here fetches.
+//!
+//! The document also says, in markers a paginating renderer reads, what the page structure is
+//! and what each message is written in, so no one has to edit the markup afterwards:
+//! - `data-break-before="page"` on a message that starts a page ([`Pages::PerMessage`]);
+//! - `data-break-inside="avoid"` on a message's headers, a quoted block, a table, an image and
+//!   the list of attachments: what reads badly cut in two by a page's end;
+//! - `data-script` on a message whose CJK script its own headers or text say ([`Script`]), so
+//!   a renderer can choose the regional face for it; and on `<body>`, the first message's, for
+//!   the document's own lines around the messages (the "printed" line, the note, the thread's
+//!   title, which is that message's subject).
+//!
+//! The same attributes mean nothing to a browser; the stylesheet's `break-*` rules say the same
+//! things to one that reads CSS fragmentation.
+//!
+//! Pure: the time zone and "now" are arguments, and nothing here reads the clock or the disk.
+
+use crate::block::{
+    Block, Dir, Document, ImgSrc, ListKind, ParaStyle, Reached, Span, from_html_describing,
+    from_text_keeping_lines,
+};
+use crate::sanitize::{RemoteImages, SanitizePolicy, sanitize};
+use crate::script::{Script, script_of, script_of_parsed};
+use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::{Address, Body, Message, human_size};
+use mail_mime::Parsed;
+use std::collections::BTreeMap;
+use std::fmt::Display;
+use std::fmt::Write as _;
+
+/// One message to print, and what its stored bytes said.
+///
+/// `parsed` is `None` when the body has not been fetched, when its bytes are gone, or when
+/// they do not parse — the same three cases the reader falls back to the stored text for.
+#[derive(Debug, Clone, Copy)]
+pub struct Sheet<'a> {
+    pub message: &'a Message,
+    pub parsed: Option<&'a Parsed>,
+    /// The remote images this message's printout may draw.
+    pub remote: Remote<'a>,
+}
+
+/// The remote images a message's printout may draw. A remote image is a read receipt: only the
+/// reader's consent to this message's images lets one in, and then only as bytes the caller
+/// already fetched.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Remote<'a> {
+    /// None: each is named where it stood, by its description and its host. Always, without
+    /// the reader's consent.
+    #[default]
+    Blocked,
+    /// The reader's consent stands for this message. Each image in the map (its URL, as
+    /// [`remote_images`] listed it, to a `data:` URI of an allowlisted raster type) is drawn;
+    /// one missing from it, or whose URI is not such a `data:` URI, is named as a blocked one is.
+    Allowed(&'a BTreeMap<String, String>),
+}
+
+/// How the document is made beyond what it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options<'a> {
+    pub pages: Pages,
+    /// The words the document says. This crate writes none of its own.
+    pub labels: Labels<'a>,
+    /// Rules written after the document's own stylesheet: a renderer's named faces, say. The
+    /// caller's, written as given, and never anything a message said.
+    pub style: &'a str,
+    /// A line under the "Printed" line when the printout names an image rather than drawing
+    /// it. Escaped like every other text.
+    pub missing_note: Option<&'a str>,
+    /// Whether the reader keeps a twelve-hour clock: `2:05 PM` rather than `14:05`. A bool and
+    /// not `mail-core`'s `when::Clock`, which this crate is below and cannot name; the caller
+    /// passes that choice down.
+    pub twelve_hour: bool,
+}
+
+impl<'a> Options<'a> {
+    /// `pages` and `labels`, and nothing more: the document's own stylesheet, no note, and
+    /// twenty-four hours.
+    pub fn new(pages: Pages, labels: Labels<'a>) -> Options<'a> {
+        Options {
+            pages,
+            labels,
+            style: "",
+            missing_note: None,
+            twelve_hour: false,
+        }
+    }
+}
+
+/// Every phrase the document puts in front of a reader, worded by the caller.
+///
+/// A few take a value: `{when}`, `{n}`, `{alt}` and `{host}` stand where it goes, so a language
+/// that orders the words differently is a different string and not different code. The values
+/// are escaped like every other text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Labels<'a> {
+    /// The header table's row names.
+    pub from: &'a str,
+    pub to: &'a str,
+    pub cc: &'a str,
+    pub date: &'a str,
+    pub subject: &'a str,
+    /// The line at the top: `Printed {when}`.
+    pub printed: &'a str,
+    /// A message with no subject.
+    pub no_subject: &'a str,
+    /// After a thread's title: `({n} messages)`.
+    pub thread_count: &'a str,
+    /// Where an image is named rather than drawn, it reads `[image: alt, from host]`: this is
+    /// `[image`, and the closing `]` is the document's own.
+    pub image: &'a str,
+    /// Follows `image` when the image has a description: `: {alt}`.
+    pub image_alt: &'a str,
+    /// Follows when the image's host is known: `, from {host}`.
+    pub image_host: &'a str,
+    /// A message whose body has not been fetched, so only its headers are printed.
+    pub no_body: &'a str,
+    /// A body too long to show whole.
+    pub cut_off: &'a str,
+    /// Above the attachment list: `Attachments ({n})`.
+    pub attachments: &'a str,
+    /// An attachment with no name.
+    pub unnamed: &'a str,
+}
+
+/// Whether each message of a thread starts on a new page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pages {
+    /// One after another, a rule between them. Saves paper on a thread of short replies.
+    Flow,
+    /// Every message after the first starts a new page.
+    PerMessage,
+}
+
+/// The printable document for `sheets`, in the order given, made as `options` say: the pages,
+/// the words, rules after the stylesheet, and a note when an image is named rather than drawn.
+///
+/// The caller orders a thread (oldest first reads as a conversation). Dates are shown in
+/// `zone`; `now` is the "printed" line at the top. The title is the first message's subject.
+pub fn print_with<Tz>(
+    sheets: &[Sheet<'_>],
+    zone: &Tz,
+    now: DateTime<Utc>,
+    options: &Options<'_>,
+) -> String
+where
+    Tz: TimeZone,
+    Tz::Offset: Display,
+{
+    let labels = &options.labels;
+    // The messages first, so the top can say whether an image in them was left out.
+    let mut messages = String::new();
+    let mut first_script = None;
+    for (index, sheet) in sheets.iter().enumerate() {
+        let (class, starts_page) = match (index, options.pages) {
+            (0, _) | (_, Pages::Flow) => ("message", ""),
+            (_, Pages::PerMessage) => ("message new-page", " data-break-before=\"page\""),
+        };
+        let said = script(sheet);
+        if index == 0 {
+            first_script = said;
+        }
+        let script = marker(said);
+        let _ = writeln!(messages, "<article class=\"{class}\"{starts_page}{script}>");
+        header(&mut messages, sheet.message, zone, options);
+        body(&mut messages, sheet, labels);
+        attachments(&mut messages, sheet.message, labels);
+        messages.push_str("</article>\n");
+    }
+    // Every text is escaped, so this element can only be one `missing` wrote.
+    let left_out = messages.contains(MISSING);
+    let title = sheets
+        .first()
+        .map(|sheet| sheet.message.subject.trim())
+        .filter(|subject| !subject.is_empty())
+        .unwrap_or(labels.no_subject);
+    let mut out = String::new();
+    out.push_str("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n");
+    // A second line of defence behind "we emit nothing that loads": should a future edit let
+    // something through, the document itself still refuses to fetch or run it.
+    out.push_str(
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; \
+         img-src data:; style-src 'unsafe-inline'\">\n",
+    );
+    let _ = writeln!(out, "<title>{}</title>", escape_html(title));
+    out.push_str("<style>\n");
+    out.push_str(CSS);
+    if !options.style.is_empty() {
+        out.push_str(options.style);
+        if !options.style.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // The document's own lines go with the first message: the title is its subject, and a
+    // renderer choosing a face for "Printed …" should not choose one the messages do not use.
+    let _ = writeln!(out, "</style>\n</head>\n<body{}>", marker(first_script));
+    let _ = writeln!(
+        out,
+        "<p class=\"printed\">{}</p>",
+        escape_html(labels.printed).replace(
+            "{when}",
+            &escape_html(&when(now, zone, options.twelve_hour))
+        )
+    );
+    if left_out && let Some(note) = options.missing_note {
+        let _ = writeln!(out, "<p class=\"paper-note\">{}</p>", escape_html(note));
+    }
+    if sheets.len() > 1 {
+        let _ = writeln!(
+            out,
+            "<h1 class=\"thread\">{} <span class=\"count\">{}</span></h1>",
+            escape_html(title),
+            escape_html(
+                &labels
+                    .thread_count
+                    .replace("{n}", &sheets.len().to_string())
+            )
+        );
+    }
+    out.push_str(&messages);
+    out.push_str("</body>\n</html>\n");
+    out
+}
+
+/// ` data-script="…"` for `script`, or nothing.
+fn marker(script: Option<Script>) -> String {
+    script
+        .map(|script| format!(" data-script=\"{}\"", script.tag()))
+        .unwrap_or_default()
+}
+
+/// The CJK script `sheet` is written in, as far as the message says: its own headers when its
+/// bytes are here, then its subject and its text.
+fn script(sheet: &Sheet<'_>) -> Option<Script> {
+    let subject = sheet.message.subject.as_str();
+    match sheet.parsed {
+        Some(parsed) => script_of_parsed(parsed, subject),
+        None => {
+            let stored = match &sheet.message.body {
+                Body::Present { text, .. } => text.as_deref().unwrap_or(""),
+                _ => "",
+            };
+            script_of(None, None, &format!("{subject}\n{stored}"))
+        }
+    }
+}
+
+/// The remote images [`print`] would draw for `sheets` if it had them: the `http` and `https`
+/// URLs of every image in the messages whose images are [`Remote::Allowed`], in order, each
+/// once. A spacer (a side of one pixel or less) is left out: it is drawn as nothing. A message
+/// without consent contributes nothing, so a caller that fetches exactly this list never asks
+/// for an image nobody allowed.
+pub fn remote_images(sheets: &[Sheet<'_>]) -> Vec<String> {
+    let mut urls = Vec::new();
+    for sheet in sheets {
+        if sheet.remote == Remote::Blocked {
+            continue;
+        }
+        if let Some(document) = document(sheet) {
+            collect_remote(&document.blocks, &mut urls);
+        }
+    }
+    urls
+}
+
+fn collect_remote(blocks: &[Block], urls: &mut Vec<String>) {
+    for block in blocks {
+        match block {
+            Block::Image {
+                src: ImgSrc::Remote(url),
+                width,
+                height,
+                ..
+            } if !is_spacer(*width, *height) => {
+                let url = url.as_str();
+                let web = url.starts_with("https://") || url.starts_with("http://");
+                if web && !urls.iter().any(|seen| seen == url) {
+                    urls.push(url.to_owned());
+                }
+            }
+            Block::List { items, .. } => {
+                for item in items {
+                    collect_remote(item, urls);
+                }
+            }
+            Block::Quote { blocks, .. } | Block::Signature(blocks) => collect_remote(blocks, urls),
+            _ => {}
+        }
+    }
+}
+
+/// A `data:` URI this document may draw: base64 of one of [`mail_mime::embeddable`]'s raster types,
+/// and nothing that could end the attribute or say anything else.
+fn drawable(uri: &str) -> bool {
+    let Some(rest) = uri.strip_prefix("data:") else {
+        return false;
+    };
+    let Some((mime, data)) = rest.split_once(";base64,") else {
+        return false;
+    };
+    mail_mime::embeddable(mime) == Some(mime)
+        && !data.is_empty()
+        && data
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+}
+
+/// How [`missing`] opens its line.
+const MISSING: &str = "<p class=\"missing\">";
+
+/// A4 and Letter alike: the margins fit both, and nothing is sized to either sheet.
+const CSS: &str = "\
+@page { margin: 18mm 16mm; }
+html { color: #000; background: #fff; }
+body { font: 11pt/1.45 Georgia, 'Times New Roman', serif; margin: 0 auto; max-width: 48em; }
+.printed { font: 8pt sans-serif; color: #555; text-align: right; margin: 0 0 1em; }
+h1.thread { font: bold 15pt sans-serif; margin: 0 0 1em; }
+h1.thread .count { font-weight: normal; color: #555; font-size: 10pt; }
+.message + .message { border-top: 1px solid #999; margin-top: 1.5em; padding-top: 1em; }
+.message.new-page { break-before: page; page-break-before: always; border-top: none; }
+.headers { break-inside: avoid; page-break-inside: avoid; break-after: avoid; \
+page-break-after: avoid; font: 9.5pt/1.4 sans-serif; border-bottom: 1px solid #ccc; \
+padding-bottom: .6em; margin-bottom: 1em; }
+.headers h2 { font: bold 13pt/1.3 sans-serif; margin: 0 0 .4em; }
+.headers table { border-collapse: collapse; }
+.headers th { text-align: left; vertical-align: top; color: #555; font-weight: normal; \
+padding: 0 .8em 0 0; white-space: nowrap; }
+.headers td { padding: 0; overflow-wrap: anywhere; }
+.body { overflow-wrap: anywhere; }
+.body p { margin: 0 0 .8em; }
+.body pre { white-space: pre-wrap; font: 9.5pt/1.35 monospace; overflow-wrap: anywhere; }
+.body code { font-family: monospace; }
+.body blockquote { margin: 0 0 .8em .2em; padding-left: .9em; border-left: 3px solid #999; \
+color: #333; }
+.body .attribution { color: #555; margin-bottom: .3em; }
+.body img { max-width: 100%; height: auto; }
+.body table { border-collapse: collapse; margin: 0 0 .8em; }
+.body td, .body th { border: 1px solid #bbb; padding: .2em .5em; vertical-align: top; }
+.body dl { display: grid; grid-template-columns: max-content auto; gap: .2em 1em; }
+.body dd { margin: 0; }
+.body .signature { color: #555; font-size: 9.5pt; margin-top: 1em; }
+.body .missing { color: #555; font-style: italic; }
+.body .url { color: #555; font-size: 9pt; overflow-wrap: anywhere; }
+a { color: inherit; }
+.note { font: italic 10pt sans-serif; color: #555; }
+.attachments { break-inside: avoid; page-break-inside: avoid; font: 9.5pt sans-serif; \
+border-top: 1px solid #ccc; margin-top: 1em; padding-top: .5em; }
+.attachments ul { margin: .3em 0 0; padding-left: 1.2em; }
+.attachments .size { color: #555; }
+";
+
+fn header<Tz>(out: &mut String, message: &Message, zone: &Tz, options: &Options<'_>)
+where
+    Tz: TimeZone,
+    Tz::Offset: Display,
+{
+    let labels = &options.labels;
+    let _ = writeln!(out, "<header class=\"headers\"{KEEP}>");
+    let subject = message.subject.trim();
+    let subject = if subject.is_empty() {
+        labels.no_subject
+    } else {
+        subject
+    };
+    let _ = writeln!(out, "<h2>{}</h2>", escape_html(subject));
+    out.push_str("<table>\n");
+    row(
+        out,
+        labels.from,
+        &addresses(std::slice::from_ref(&message.from)),
+    );
+    if !message.to.is_empty() {
+        row(out, labels.to, &addresses(&message.to));
+    }
+    if !message.cc.is_empty() {
+        row(out, labels.cc, &addresses(&message.cc));
+    }
+    row(
+        out,
+        labels.date,
+        &when(message.date, zone, options.twelve_hour),
+    );
+    row(out, labels.subject, subject);
+    out.push_str("</table>\n</header>\n");
+}
+
+fn row(out: &mut String, label: &str, value: &str) {
+    let _ = writeln!(
+        out,
+        "<tr><th>{}</th><td>{}</td></tr>",
+        escape_html(label),
+        escape_html(value)
+    );
+}
+
+/// `Ada Lovelace <ada@example.org>`, or the bare address when there is no name.
+fn addresses(list: &[Address]) -> String {
+    Address::join(list)
+}
+
+/// A date as a header shows it, in the reader's zone and by the reader's clock:
+/// `Thu, 24 Sep 2026 14:05 +08:00`, or `Thu, 24 Sep 2026 2:05 PM +08:00`.
+///
+/// The hour is written as `mail-core`'s `when::time_of_day` writes it, which this crate cannot
+/// call; a test there holds the two to the same words.
+fn when<Tz>(instant: DateTime<Utc>, zone: &Tz, twelve_hour: bool) -> String
+where
+    Tz: TimeZone,
+    Tz::Offset: Display,
+{
+    let hour = if twelve_hour { "%-I:%M %p" } else { "%H:%M" };
+    instant
+        .with_timezone(zone)
+        .format(&format!("%a, %-d %b %Y {hour} %:z"))
+        .to_string()
+}
+
+/// The reader's choice of body, as blocks: see `mail-app`'s `view::reading`, which this
+/// follows case for case. The one difference is the image a message refers to and does not
+/// hold, which the reader drops and a printout names, and a fixed line of plain text, which
+/// the reader rewraps and a printout ends where the sender did.
+fn document(sheet: &Sheet<'_>) -> Option<Document> {
+    let Body::Present { text, .. } = &sheet.message.body else {
+        return None;
+    };
+    let stored = text.as_deref().unwrap_or("");
+    let Some(parsed) = sheet.parsed else {
+        return Some(from_text_keeping_lines(stored, mail_mime::Flowed::Fixed));
+    };
+    Some(match parsed.html.as_deref() {
+        Some(html) => {
+            // Sanitized with remote URLs kept, then lowered with them blocked: the reader's
+            // two steps. The block parser keeps only the host of a blocked image, so the
+            // printout can say whose image is missing without holding an address to fetch.
+            // With the reader's consent the URLs stay, to be matched to what was fetched.
+            let policy = SanitizePolicy {
+                remote_images: RemoteImages::Allowed,
+                ..SanitizePolicy::CURRENT
+            };
+            let safe = sanitize(html, policy);
+            let lowered = match sheet.remote {
+                Remote::Blocked => RemoteImages::Blocked,
+                Remote::Allowed(_) => RemoteImages::Allowed,
+            };
+            from_html_describing(&safe, &parsed.attachments, lowered)
+        }
+        None => from_text_keeping_lines(parsed.text.as_deref().unwrap_or(stored), parsed.flowed),
+    })
+}
+
+fn body(out: &mut String, sheet: &Sheet<'_>, labels: &Labels<'_>) {
+    let Some(document) = document(sheet) else {
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape_html(labels.no_body));
+        return;
+    };
+    out.push_str("<div class=\"body\">\n");
+    if let Some(action) = &document.primary {
+        button(out, &action.label, action.url.as_str());
+    }
+    blocks(out, &document.blocks, sheet.remote, labels);
+    out.push_str("</div>\n");
+    if document.reached != Reached::Nothing {
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape_html(labels.cut_off));
+    }
+}
+
+/// What a paginating renderer should not cut in two: see the module notes.
+const KEEP: &str = " data-break-inside=\"avoid\"";
+
+fn blocks(out: &mut String, list: &[Block], remote: Remote<'_>, labels: &Labels<'_>) {
+    for block in list {
+        one_block(out, block, remote, labels);
+    }
+}
+
+fn one_block(out: &mut String, block: &Block, remote: Remote<'_>, labels: &Labels<'_>) {
+    match block {
+        Block::Heading {
+            level,
+            spans,
+            style,
+        } => {
+            // Message headings sit under the message's own `h2`.
+            let level = (*level).clamp(1, 6).saturating_add(2).min(6);
+            let _ = write!(out, "<h{level}{}>", style_attr(*style));
+            inline(out, spans);
+            let _ = writeln!(out, "</h{level}>");
+        }
+        Block::Paragraph { spans, dir, style } => {
+            let _ = write!(out, "<p dir=\"{}\"{}>", direction(*dir), style_attr(*style));
+            inline(out, spans);
+            out.push_str("</p>\n");
+        }
+        Block::List { kind, items } => {
+            let tag = match kind {
+                ListKind::Numbered => "ol",
+                ListKind::Bulleted => "ul",
+            };
+            let _ = writeln!(out, "<{tag}>");
+            for item in items {
+                out.push_str("<li>");
+                blocks(out, item, remote, labels);
+                out.push_str("</li>\n");
+            }
+            let _ = writeln!(out, "</{tag}>");
+        }
+        Block::Quote {
+            attribution,
+            blocks: inner,
+        } => {
+            if let Some(spans) = attribution {
+                out.push_str("<p class=\"attribution\">");
+                inline(out, spans);
+                out.push_str("</p>\n");
+            }
+            let _ = writeln!(out, "<blockquote{KEEP}>");
+            blocks(out, inner, remote, labels);
+            out.push_str("</blockquote>\n");
+        }
+        Block::Code { text, .. } => {
+            let _ = writeln!(out, "<pre>{}</pre>", escape_html(text));
+        }
+        Block::Table { head, rows } => {
+            let _ = writeln!(out, "<table{KEEP}>");
+            if let Some(head) = head {
+                out.push_str("<thead><tr>");
+                for cell in head {
+                    out.push_str("<th>");
+                    inline(out, cell);
+                    out.push_str("</th>");
+                }
+                out.push_str("</tr></thead>\n");
+            }
+            out.push_str("<tbody>\n");
+            for cells in rows {
+                out.push_str("<tr>");
+                for cell in cells {
+                    out.push_str("<td>");
+                    inline(out, cell);
+                    out.push_str("</td>");
+                }
+                out.push_str("</tr>\n");
+            }
+            out.push_str("</tbody>\n</table>\n");
+        }
+        Block::Facts(pairs) => {
+            out.push_str("<dl>\n");
+            for (label, value) in pairs {
+                out.push_str("<dt>");
+                inline(out, label);
+                out.push_str("</dt><dd>");
+                inline(out, value);
+                out.push_str("</dd>\n");
+            }
+            out.push_str("</dl>\n");
+        }
+        Block::Image {
+            src,
+            alt,
+            width,
+            height,
+        } => image(out, src, alt, (*width, *height), remote, labels),
+        Block::Button { label, url } => button(out, label, url.as_str()),
+        Block::Signature(inner) => {
+            out.push_str("<div class=\"signature\">\n");
+            blocks(out, inner, remote, labels);
+            out.push_str("</div>\n");
+        }
+        Block::Rule => out.push_str("<hr>\n"),
+    }
+}
+
+fn direction(dir: Dir) -> &'static str {
+    match dir {
+        Dir::Auto => "auto",
+        Dir::Ltr => "ltr",
+        Dir::Rtl => "rtl",
+    }
+}
+
+/// An image that is here is drawn; one that is not is named.
+///
+/// [`ImgSrc::Inline`] is drawn: a `data:` URI of an allowlisted image type that the block parser
+/// built. A remote image is drawn only when the reader consented to this message's images and
+/// the caller hands in its bytes, already fetched, as such a `data:` URI ([`Remote::Allowed`]);
+/// otherwise it is named. Nothing here fetches: a printout that fetched would be a read receipt
+/// nobody asked for.
+fn image(
+    out: &mut String,
+    src: &ImgSrc,
+    alt: &str,
+    size: (Option<u32>, Option<u32>),
+    remote: Remote<'_>,
+    labels: &Labels<'_>,
+) {
+    let (width, height) = size;
+    let alt = alt.trim();
+    match src {
+        ImgSrc::Inline(uri) => draw(out, uri.as_str(), alt, size),
+        // A tracking pixel or a spacer: there was never anything to see.
+        ImgSrc::Remote(_) | ImgSrc::Blocked { .. } if is_spacer(width, height) => {}
+        ImgSrc::Remote(url) => {
+            // The consented image's bytes, when the caller fetched them and they are an image.
+            let fetched = match remote {
+                Remote::Allowed(fetched) => fetched
+                    .get(url.as_str())
+                    .map(String::as_str)
+                    .filter(|uri| drawable(uri)),
+                Remote::Blocked => None,
+            };
+            match fetched {
+                Some(uri) => draw(out, uri, alt, size),
+                None => {
+                    let host = url::Url::parse(url.as_str())
+                        .ok()
+                        .and_then(|url| url.host_str().map(str::to_owned));
+                    missing(out, alt, host.as_deref(), labels);
+                }
+            }
+        }
+        ImgSrc::Blocked { host } => missing(out, alt, Some(host), labels),
+    }
+}
+
+/// An `<img>` of `uri`, a `data:` URI this module has checked, on a line of its own that a page's
+/// end does not cut.
+fn draw(out: &mut String, uri: &str, alt: &str, (width, height): (Option<u32>, Option<u32>)) {
+    let _ = write!(
+        out,
+        "<p{KEEP}><img src=\"{}\" alt=\"{}\"",
+        escape_html(uri),
+        escape_html(alt)
+    );
+    if let Some(width) = width {
+        let _ = write!(out, " width=\"{width}\"");
+    }
+    if let Some(height) = height {
+        let _ = write!(out, " height=\"{height}\"");
+    }
+    out.push_str("></p>\n");
+}
+
+/// A declared side of one pixel or less.
+fn is_spacer(width: Option<u32>, height: Option<u32>) -> bool {
+    width.is_some_and(|w| w <= 1) || height.is_some_and(|h| h <= 1)
+}
+
+fn missing(out: &mut String, alt: &str, host: Option<&str>, labels: &Labels<'_>) {
+    let mut what = labels.image.to_owned();
+    if !alt.is_empty() {
+        what.push_str(&labels.image_alt.replace("{alt}", alt));
+    }
+    let from = host
+        .map(|host| labels.image_host.replace("{host}", host))
+        .unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "{MISSING}{}{}]</p>",
+        escape_html(&what),
+        escape_html(&from)
+    );
+}
+
+/// A lone link. On paper a link cannot be followed, so its address is printed beside it.
+fn button(out: &mut String, label: &str, url: &str) {
+    let _ = writeln!(
+        out,
+        "<p class=\"button\"><a href=\"{}\">{}</a> <span class=\"url\">&lt;{}&gt;</span></p>",
+        escape_html(url),
+        escape_html(label),
+        escape_html(url)
+    );
+}
+
+/// A paragraph's alignment and indent as a `style` attribute, with its leading space; nothing
+/// for a plain one. The values are `ParaStyle`'s fixed few, never the sender's CSS.
+fn style_attr(style: ParaStyle) -> String {
+    style
+        .css()
+        .map(|css| format!(" style=\"{css}\""))
+        .unwrap_or_default()
+}
+
+fn inline(out: &mut String, spans: &[Span]) {
+    for span in spans {
+        match span {
+            Span::Text(text) => out.push_str(&escape_html(text)),
+            Span::Strong(inner) => {
+                out.push_str("<strong>");
+                inline(out, inner);
+                out.push_str("</strong>");
+            }
+            Span::Emphasis(inner) => {
+                out.push_str("<em>");
+                inline(out, inner);
+                out.push_str("</em>");
+            }
+            Span::Code(text) => {
+                let _ = write!(out, "<code>{}</code>", escape_html(text));
+            }
+            Span::Link { url, spans } => {
+                let _ = write!(out, "<a href=\"{}\">", escape_html(url.as_str()));
+                inline(out, spans);
+                out.push_str("</a>");
+            }
+            Span::Styled { style, spans } => match style.css() {
+                Some(css) => {
+                    let _ = write!(out, "<span style=\"{css}\">");
+                    inline(out, spans);
+                    out.push_str("</span>");
+                }
+                None => inline(out, spans),
+            },
+            Span::Break => out.push_str("<br>"),
+        }
+    }
+}
+
+fn attachments(out: &mut String, message: &Message, labels: &Labels<'_>) {
+    let listed: Vec<_> = message
+        .attachments
+        .iter()
+        .filter(|part| part.inline == mail_domain::Inline::Attached)
+        .collect();
+    if listed.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "<section class=\"attachments\"{KEEP}>\n<strong>{}</strong>\n<ul>",
+        escape_html(&labels.attachments.replace("{n}", &listed.len().to_string()))
+    );
+    for part in listed {
+        let name = part.name.trim();
+        let name = if name.is_empty() {
+            labels.unnamed
+        } else {
+            name
+        };
+        let _ = writeln!(
+            out,
+            "<li>{} <span class=\"size\">({})</span></li>",
+            escape_html(name),
+            escape_html(&human_size(part.size))
+        );
+    }
+    out.push_str("</ul>\n</section>\n");
+}
+
+/// Text made safe for both element content and a double-quoted attribute.
+pub fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            // A NUL or other control character has no business in a printout and some
+            // renderers treat NUL specially; newlines and tabs are whitespace and stay.
+            '\n' | '\t' => out.push(ch),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}

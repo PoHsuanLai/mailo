@@ -53,9 +53,9 @@ fn the_app_s_lock_is_the_watch_s_own_and_refuses_a_second_holder() {
     };
     let agent = latchkey::Agent::in_environment("mailo-bg-test", latchkey::here(), &environment)
         .unwrap_or_else(|e| panic!("{e}"));
-    let first = step(mail_core::ipc::watching::claim_at(&agent));
+    let first = step(mail_agent::ipc::watching::claim_at(&agent));
     assert!(matches!(first, Step::Watch(_)), "{first:?}");
-    let second = step(mail_core::ipc::watching::claim_at(&agent));
+    let second = step(mail_agent::ipc::watching::claim_at(&agent));
     assert!(matches!(second, Step::Wait), "{second:?}");
 }
 
