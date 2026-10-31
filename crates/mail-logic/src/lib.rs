@@ -9,6 +9,7 @@
 //! (an instant, a trait over the store); none reads one itself.
 
 pub mod mailbox_filter;
+pub mod otp;
 pub mod password;
 pub mod picture;
 pub mod query;

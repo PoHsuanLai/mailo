@@ -45,7 +45,6 @@ pub mod mail;
 pub mod message;
 pub mod notify;
 pub mod offline;
-pub mod otp;
 pub mod pgp;
 pub mod profile;
 pub mod protect;

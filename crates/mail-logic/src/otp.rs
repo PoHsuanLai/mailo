@@ -12,12 +12,7 @@
 //! error code are codes of another kind, and the word "code" beside them is not taken as a
 //! keyword.
 //!
-//! [`of_message`] reads a stored message's text for it: the plain part, or the text of its HTML
-//! where it has none, which is how most of these arrive.
-
-use crate::error::Logged;
-use mail_domain::Message;
-use mail_store::SqliteStore;
+//! Reading a stored message's text for it is `mail-core`'s (`message::looks`).
 
 /// How much of a body is read for a code. One sits near the top of the message it is for, and a
 /// long newsletter is not read to the end for a number.
@@ -54,23 +49,6 @@ pub fn code(subject: &str, body: &str) -> Option<String> {
         };
         after.or_else(before).map(|c| text.slice(c))
     })
-}
-
-/// The code in `message` as the store holds it: its subject, and its plain text or the text of
-/// its HTML. A message whose body is not here is read by its subject alone; one whose stored
-/// bytes cannot be read, likewise.
-pub fn of_message(store: &SqliteStore, message: &Message) -> Option<String> {
-    let body = match (message.body.text(), message.body.raw()) {
-        (Some(text), _) => Some(text.to_owned()),
-        (None, Some(raw)) => store
-            .blobs()
-            .get(raw)
-            .or_log("a message's text could not be read for its code")
-            .and_then(|bytes| mail_mime::parse::readable_text(&bytes)),
-        (None, None) => None,
-    };
-    // No text here: the subject is read alone.
-    code(&message.subject, body.as_deref().unwrap_or_default())
 }
 
 /// A stretch of the text, in characters.

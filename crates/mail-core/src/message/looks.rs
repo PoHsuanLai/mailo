@@ -1,6 +1,6 @@
 //! What the reader finds out about one message beyond its body, and keeps so that opening it
 //! again costs a lookup: the checks the receiving server made of the sender, the invitation it
-//! carries, whether it asks for a read receipt, the one-time code in it ([`crate::otp`]), the
+//! carries, whether it asks for a read receipt, the one-time code in it ([`mail_logic::otp`]), the
 //! thread's way out of its mailing list and the list's address to write to, and what OpenPGP or
 //! S/MIME made of it ([`seal`](super::seal)).
 //!
@@ -96,6 +96,23 @@ pub struct Looks {
     posts: Mutex<Recent<ThreadId, (Bodies, Option<MessageId>)>>,
     pub(super) seals: Mutex<Recent<MessageId, Kept>>,
     reads: [AtomicUsize; READS],
+}
+
+/// The code in `message` as the store holds it: its subject, and its plain text or the text of
+/// its HTML. A message whose body is not here is read by its subject alone; one whose stored
+/// bytes cannot be read, likewise.
+fn code_of_message(store: &SqliteStore, message: &Message) -> Option<String> {
+    let body = match (message.body.text(), message.body.raw()) {
+        (Some(text), _) => Some(text.to_owned()),
+        (None, Some(raw)) => store
+            .blobs()
+            .get(raw)
+            .or_log("a message's text could not be read for its code")
+            .and_then(|bytes| mail_mime::parse::readable_text(&bytes)),
+        (None, None) => None,
+    };
+    // No text here: the subject is read alone.
+    mail_logic::otp::code(&message.subject, body.as_deref().unwrap_or_default())
 }
 
 /// The memory under `lock`, whether or not a thread panicked holding it: what it holds is only
@@ -247,7 +264,7 @@ impl Looks {
         let code = store
             .message(message)
             .or_log("a message could not be read for its code")
-            .and_then(|stored| crate::otp::of_message(store, &stored));
+            .and_then(|stored| code_of_message(store, &stored));
         held(&self.codes).put(message, (body, code.clone()));
         code
     }
