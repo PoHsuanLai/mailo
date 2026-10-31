@@ -20,6 +20,10 @@ name = "mail_logic"
 mail-domain.workspace = true
 porter-core.workspace = true
 chrono.workspace = true
+# The registered domain of a host, for the brand check and the link pill. Chosen over `publicsuffix`,
+# which needs the list shipped and parsed at run time; this one compiles the list in, so a check
+# needs no file and no I/O. MIT/Apache-2.0, with one dependency, `psl-types`.
+psl = "2"
 
 [dev-dependencies]
 mail-domain = { workspace = true, features = ["testing"] }

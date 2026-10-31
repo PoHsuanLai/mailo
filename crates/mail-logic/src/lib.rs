@@ -9,6 +9,7 @@
 //! (an instant, a trait over the store); none reads one itself.
 
 pub mod picture;
+pub mod trust;
 pub mod undo;
 pub mod when;
 

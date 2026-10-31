@@ -218,9 +218,6 @@ pub mod sync {
 pub mod transfer {
     pub use mail_core::transfer::{IoCause, Refusal, Seen, expand_here, look, suggested};
 }
-pub mod trust {
-    pub use mail_core::trust::{Destination, destination, spoof};
-}
 pub mod unsubscribe {
     pub use mail_core::unsubscribe::{Found, Outcome, client};
 }

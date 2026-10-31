@@ -79,9 +79,8 @@ base64 = "0.22"
 thiserror.workspace = true
 # Diagnostics a library has no business writing to a terminal: the binary installs the logger.
 log.workspace = true
-# The registered domain of a host, for the sender card's brand check and the link pill. Chosen
-# over `publicsuffix`, which needs the list shipped and parsed at run time; this one compiles the
-# list in, so a check needs no file and no I/O. MIT/Apache-2.0, with one dependency, `psl-types`.
+# The registered domain of a host, for the sender card (`auth.rs`). The same `psl` as `mail-logic`'s
+# `trust`: it compiles the list in, so a check needs no file and no I/O.
 psl = "2"
 # Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
 # may be a message or a thread, and only the store can say which.

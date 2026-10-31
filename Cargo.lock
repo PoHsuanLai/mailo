@@ -5673,6 +5673,7 @@ dependencies = [
  "chrono",
  "mailo-domain",
  "porter-core",
+ "psl",
 ]
 
 [[package]]
