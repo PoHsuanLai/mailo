@@ -20,6 +20,7 @@ name = "mail_logic"
 mail-domain.workspace = true
 porter-core.workspace = true
 porter-provider.workspace = true
+thiserror.workspace = true
 chrono.workspace = true
 serde.workspace = true
 # The registered domain of a host, for the brand check and the link pill. Chosen over `publicsuffix`,

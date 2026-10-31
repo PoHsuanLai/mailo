@@ -65,7 +65,7 @@ pub mod unsubscribe;
 pub mod vip;
 
 pub use environment::{Environment, Program};
-pub use error::{CoreError, TimeError};
+pub use error::CoreError;
 pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, OAuthClients, RuleOps,
     SyncOps, SystemClock,

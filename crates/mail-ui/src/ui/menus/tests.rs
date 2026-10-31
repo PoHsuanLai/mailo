@@ -159,7 +159,7 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
             .find(|item| item.key == phrase)
             .unwrap_or_else(|| panic!("{phrase} is not in the menu"));
         assert_eq!(item.name, name, "{phrase}");
-        let at = mail_core::snooze::snooze_until(phrase, now, &zone).expect(phrase);
+        let at = mail_logic::snooze::snooze_until(phrase, now, &zone).expect(phrase);
         assert_eq!(
             item.right,
             Right::Hint(super::snooze_hint(at, now, &zone, Clock::H24)),
@@ -174,7 +174,7 @@ fn the_snooze_menu_writes_its_hours_by_the_persons_clock() {
     let now = chrono::Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
     let zone = chrono::Utc;
     let hint = |phrase: &str, clock| {
-        let at = mail_core::snooze::snooze_until(phrase, now, &zone).expect(phrase);
+        let at = mail_logic::snooze::snooze_until(phrase, now, &zone).expect(phrase);
         super::snooze_hint(at, now, &zone, clock)
     };
     assert_eq!(hint("later", Clock::H24), "18:00");

@@ -18,7 +18,7 @@ const ALLOWED: &[(&str, &str)] = &[
          mail-core's print tests hold the two to the same words",
     ),
     (
-        "mail-core/src/snooze.rs",
+        "mail-logic/src/snooze.rs",
         "reads a typed `2026-10-08 09:00`",
     ),
     (

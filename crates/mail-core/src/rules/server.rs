@@ -12,9 +12,10 @@
 //! use, so a Gmail account has none. A vacation reply this client sent itself would stop
 //! whenever the laptop closed, so there is none of that either.
 
-use crate::error::{CoreError, TimeError};
+use crate::error::CoreError;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use mail_domain::{AccountPlan, DateRange, Incoming, IsDefault, Vacation};
+use mail_logic::snooze::TimeError;
 use mail_proto::sieve::{
     Active, NoSieve, Places, SieveJob, SieveOutcome, Takeover, Unmappable, compile, endpoint,
 };

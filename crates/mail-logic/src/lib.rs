@@ -17,6 +17,7 @@ pub mod recent;
 pub mod remedy;
 pub mod saved_search;
 pub mod scope;
+pub mod snooze;
 pub mod trust;
 pub mod undo;
 pub mod when;

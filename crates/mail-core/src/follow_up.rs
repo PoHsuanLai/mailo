@@ -22,12 +22,13 @@
 //! account with no Sent folder (POP3), whose copy is kept here as it is sent. One whose copy is
 //! never found is let go a week after it was due.
 
-use crate::error::{CoreError, Logged, TimeError};
+use crate::error::{CoreError, Logged};
 use crate::notify::{Notification, Notifier, Opens, Own};
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_domain::{
     Filter, FollowUp, MailboxRole, MatchCtx, Message, Op, Snooze, ThreadId, ThreadSummary,
 };
+use mail_logic::snooze::TimeError;
 use mail_store::{SqliteStore, Store};
 
 use held::landed;
@@ -69,7 +70,7 @@ where
     if phrase.is_empty() {
         return Err(TimeError::Blank);
     }
-    let at = crate::snooze::snooze_until(&phrase, from, zone)?;
+    let at = mail_logic::snooze::snooze_until(&phrase, from, zone)?;
     if at <= from {
         return Err(TimeError::Passed {
             stamp: mail_logic::when::stamp(at, zone, mail_logic::when::Stamp::Full, clock),

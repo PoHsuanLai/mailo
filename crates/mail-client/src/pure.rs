@@ -191,9 +191,6 @@ pub mod smime {
         pub use mail_core::smime::certs::export;
     }
 }
-pub mod snooze {
-    pub use mail_core::snooze::snooze_until;
-}
 pub mod sync {
     pub use mail_core::sync::Configured;
     pub mod due {

@@ -117,7 +117,7 @@ where
         return Ok(None);
     }
     mail_client::rules::server::instant(text, zone)
-        .or_else(|_| mail_client::snooze::snooze_until(text, now, zone))
+        .or_else(|_| mail_logic::snooze::snooze_until(text, now, zone))
         .map(Some)
         .map_err(|_| copy::errors::not_a_time(text))
 }

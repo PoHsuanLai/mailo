@@ -5,7 +5,7 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
-use crate::error::{CoreError, Logged, TimeError};
+use crate::error::{CoreError, Logged};
 use crate::pgp::OpenPgp;
 use crate::protect::Seal;
 use crate::smime::Smime;
@@ -14,6 +14,7 @@ use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_editor::{FORWARDED, plain_to_flowed};
 use mail_logic::picture::PictureSize;
+use mail_logic::snooze::TimeError;
 use mail_mime::posting;
 use mail_net::Failure;
 use mail_secrets::CredentialError;
@@ -1405,7 +1406,7 @@ pub struct Scheduled {
     pub at: DateTime<Utc>,
 }
 
-/// Queue a draft to leave at `phrase`, in the words [`crate::snooze::snooze_until`] takes:
+/// Queue a draft to leave at `phrase`, in the words [`mail_logic::snooze::snooze_until`] takes:
 /// `tomorrow`, `tonight`, `+2h`, `2026-09-25 09:00`.
 pub fn send_later(
     store: &SqliteStore,
@@ -1425,7 +1426,7 @@ pub fn send_later_with(
     phrase: &str,
     now: DateTime<Utc>,
 ) -> Result<Scheduled, SendError> {
-    let at = crate::snooze::snooze_until(phrase, now, &Local)?;
+    let at = mail_logic::snooze::snooze_until(phrase, now, &Local)?;
     let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
     Ok(Scheduled { draft, post, at })
 }
@@ -1441,7 +1442,7 @@ pub fn send_later_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let at = crate::snooze::snooze_until(phrase, now, zone)?;
+    let at = mail_logic::snooze::snooze_until(phrase, now, zone)?;
     let (draft, post) = queue(store, draft, Leaves::At(at), now)?;
     Ok(Scheduled { draft, post, at })
 }

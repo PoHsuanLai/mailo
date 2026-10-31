@@ -4,8 +4,8 @@
 # error, records it where the person sees it, logs it (`Logged::or_log`), or says why ignoring it
 # is right. Format: "<crate> <pattern> <lines>".
 mail-logic let_underscore 0
-mail-logic ok 1
-mail-logic unwrap_or_default 2
+mail-logic ok 3
+mail-logic unwrap_or_default 3
 mail-net let_underscore 2
 mail-net ok 4
 mail-net unwrap_or_default 0
@@ -22,8 +22,8 @@ mail-agent let_underscore 0
 mail-agent ok 4
 mail-agent unwrap_or_default 0
 mail-core let_underscore 0
-mail-core ok 26
-mail-core unwrap_or_default 13
+mail-core ok 24
+mail-core unwrap_or_default 12
 mail-proto let_underscore 0
 mail-proto ok 11
 mail-proto unwrap_or_default 8
