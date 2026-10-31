@@ -11,8 +11,10 @@
 pub mod mailbox_filter;
 pub mod password;
 pub mod picture;
+pub mod query;
 pub mod recent;
 pub mod remedy;
+pub mod saved_search;
 pub mod scope;
 pub mod trust;
 pub mod undo;

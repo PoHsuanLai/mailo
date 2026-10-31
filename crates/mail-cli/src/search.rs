@@ -22,7 +22,7 @@ pub(super) fn search(
     store: &SqliteStore,
     needle: &str,
     limit: u32,
-    label: &dyn mail_core::query::Names,
+    label: &dyn mail_logic::query::Names,
     now: DateTime<Utc>,
     clock: mail_logic::when::Clock,
 ) -> String {
@@ -185,7 +185,7 @@ mod tests {
             &*store,
             &Affinity::default(),
             &chrono::Local,
-            &mail_core::query::unnamed,
+            &mail_logic::query::unnamed,
             mail_core::search::first(100),
             now,
         )

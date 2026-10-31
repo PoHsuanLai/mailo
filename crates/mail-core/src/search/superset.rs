@@ -145,7 +145,7 @@ proptest! {
         let full = WORDS[word];
         let take = prefix_len.clamp(1, full.chars().count());
         let query: String = full.chars().take(take).collect();
-        let parsed = parse(&query, &Utc, &crate::query::unnamed);
+        let parsed = parse(&query, &Utc, &mail_logic::query::unnamed);
         let expansion = expand(&parsed, &indexed);
         let plain = Filter::Text(TextMatch::Contains(query.clone()));
         let expanded_ids = matching(&store, &expansion.filter, now);

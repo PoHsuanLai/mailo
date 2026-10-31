@@ -14,7 +14,7 @@ pub mod speak;
 
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
-use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState, Words};
+use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState};
 use mail_store::{SqliteStore, Store};
 
 /// What `mailo rules …` asked for.
@@ -152,7 +152,7 @@ pub fn run(
                     rules: rules
                         .into_iter()
                         .map(|rule| ListedRule {
-                            condition: condition(&rule.filter, &label),
+                            condition: mail_logic::query::condition(&rule.filter, &label),
                             rule,
                         })
                         .collect(),
@@ -173,8 +173,8 @@ pub fn run(
                 .into_iter()
                 .map(|l| (l.name, l.id))
                 .collect();
-            let named = crate::query::named(&index);
-            let filter = crate::query::parse_with(query, &chrono::Local, &named);
+            let named = mail_logic::query::named(&index);
+            let filter = mail_logic::query::parse_with(query, &chrono::Local, &named);
             let position = store
                 .rules(account.id.clone())?
                 .iter()
@@ -269,18 +269,6 @@ fn named_rule(
             address: account.address.clone(),
         })?;
     Ok((account, rule))
-}
-
-/// A filter written back in the search language, as near as it goes.
-pub fn condition(filter: &Filter, label: &dyn Fn(LabelId) -> String) -> String {
-    filter.spelled(&Words {
-        label,
-        // The search language has no word for a server folder; said as the path.
-        folder: &|path| format!("in folder {path:?}"),
-        account: "on this account",
-        snooze_due: "is:snoozed",
-        any_date: "",
-    })
 }
 
 #[cfg(test)]

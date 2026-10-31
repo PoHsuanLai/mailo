@@ -60,7 +60,7 @@ impl Provider {
     /// then the rest, newest first.
     fn found(&self, text: &str) -> Result<Vec<ThreadSummary>, AppRefusal> {
         let labels = mail_core::query::known_labels(&self.store);
-        let named = mail_core::query::named(&labels);
+        let named = mail_logic::query::named(&labels);
         let searched = mail_core::search::search_list(
             text,
             self.store.as_ref(),

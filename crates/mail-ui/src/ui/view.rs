@@ -938,8 +938,8 @@ impl Default for Shell {
 
 impl Shell {
     /// The names a search typed here resolves `label:` and `account:` against.
-    pub fn known(&self) -> mail_client::query::Known<'_> {
-        mail_client::query::Known {
+    pub fn known(&self) -> mail_logic::query::Known<'_> {
+        mail_logic::query::Known {
             labels: &self.labels,
             accounts: &self.accounts,
         }
@@ -984,7 +984,7 @@ impl Shell {
                 | None => Filter::All,
             }
         } else {
-            mail_client::query::parse_with(needle, &chrono::Local, &self.known())
+            mail_logic::query::parse_with(needle, &chrono::Local, &self.known())
         };
         let filter = self.with_account(filter);
         Query {

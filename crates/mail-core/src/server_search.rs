@@ -9,7 +9,7 @@
 //! `mailo/settings.toml`; `server-search.json` before it), and off unless turned on.
 //!
 //! What a server is asked is the line exactly as the store is asked it, parsed by the same
-//! [`crate::query::parse_with`], except that `label:` resolves against the one account being
+//! [`mail_logic::query::parse_with`], except that `label:` resolves against the one account being
 //! searched — a label is a name on one server — and a `re:/…/` pattern, which no server
 //! matches, is said rather than dropped. Each protocol's translation is `mail_proto::search`'s;
 //! the engines are `mail_runtime`'s ([`crate::SyncOps::search_server`]).
@@ -50,7 +50,7 @@ pub fn load(dir: &Path) -> Automatic {
 /// `Err` when a part of it no server can match: a `re:/…/` pattern, which is matched here over
 /// what the store holds. An invalid pattern is that too: it matches nothing anywhere.
 ///
-/// Parsed with the names the store parses with ([`crate::query::Known`]): `label:` against this
+/// Parsed with the names the store parses with ([`mail_logic::query::Known`]): `label:` against this
 /// account's `labels`, and `account:` against every account's address (`accounts`), which a
 /// server is told of as it is any account's clause. `is:vip` is asked as the VIPs' addresses
 /// (`vips`), each the address alone: the list is the store's, which a server cannot read.
@@ -67,9 +67,9 @@ pub fn filter_of(
             pattern.as_str()
         )]));
     }
-    let known = crate::query::Known { labels, accounts };
+    let known = mail_logic::query::Known { labels, accounts };
     Ok(with_vips(
-        crate::query::parse_with(&extracted.rest, &chrono::Local, &known),
+        mail_logic::query::parse_with(&extracted.rest, &chrono::Local, &known),
         vips,
     ))
 }

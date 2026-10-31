@@ -7,13 +7,13 @@
 
 use crate::ui::view::{Place, Shell, saved_of, saved_place};
 use chrono::TimeZone;
-use mail_client::query::Known;
-use mail_client::saved_search::{Draft, Refusal};
 use mail_domain::{GroupKey, LabelId, Property, View, ViewId};
+use mail_logic::query::Known;
+use mail_logic::saved_search::{Draft, Refusal};
 
-pub use mail_client::saved_search::written;
+pub use mail_logic::saved_search::written;
 
-/// A view being made or changed, as the editor holds it: [`mail_client::saved_search::Draft`] and what the
+/// A view being made or changed, as the editor holds it: [`mail_logic::saved_search::Draft`] and what the
 /// last Save or Delete refused, in words.
 ///
 /// The draft's fields read and write through this (`draft.name`, `draft.group`), so the editor

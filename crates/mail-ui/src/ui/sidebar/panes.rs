@@ -55,7 +55,7 @@ pub(super) fn pins_of(
     labels: &[(String, LabelId)],
     accounts: &[(String, porter_core::AccountId)],
 ) -> query::Pins {
-    let known = query::Known { labels, accounts };
+    let known = mail_logic::query::Known { labels, accounts };
     query::Pins {
         scope: space.payload.scope().filter(),
         pins: space
@@ -90,10 +90,10 @@ pub(super) fn titled(subject: &str) -> String {
     mail_domain::subject_or_none(subject).into_owned()
 }
 
-fn pin_filter(pin: &Pinned, known: &query::Known<'_>) -> Filter {
+fn pin_filter(pin: &Pinned, known: &mail_logic::query::Known<'_>) -> Filter {
     match pin {
         Pinned::Person { email, .. } => Filter::From(TextMatch::Contains(email.clone())),
-        Pinned::Search { query, .. } => query::parse_with(query, &chrono::Local, known),
+        Pinned::Search { query, .. } => mail_logic::query::parse_with(query, &chrono::Local, known),
     }
 }
 

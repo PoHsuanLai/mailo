@@ -75,7 +75,7 @@ pub fn select(
         (None, "") => return Err(CoreError::NoSelection),
         (None, _) => {
             let index = crate::query::known_labels(store);
-            let label = crate::query::named(&index);
+            let label = mail_logic::query::named(&index);
             let prepared = crate::search::prepare(words, store, &chrono::Local, &label)?;
             (prepared.filter, prepared.regex)
         }

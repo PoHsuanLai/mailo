@@ -220,9 +220,6 @@ pub mod conversation {
         says_for_all, scoped, scoped_unread_filter, step, threading_of, turns_off, unread_filter,
     };
 }
-pub mod saved_search {
-    pub use mail_core::saved_search::{Draft, Refusal, written};
-}
 pub mod wanted {
     pub use mail_core::wanted::{ask_first, claim};
 }

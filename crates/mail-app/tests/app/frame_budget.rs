@@ -289,7 +289,11 @@ fn what_one_frame_of_the_window_costs() {
         .unwrap_or("widgets")
         .to_owned();
     let search = timed(7, || {
-        let filter = query::parse_with(&needle, &chrono::Local, &query::named(&index));
+        let filter = mail_logic::query::parse_with(
+            &needle,
+            &chrono::Local,
+            &mail_logic::query::named(&index),
+        );
         let _ = store.threads(&page(50, filter), now);
     });
 

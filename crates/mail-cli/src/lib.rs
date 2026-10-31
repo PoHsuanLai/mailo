@@ -1602,7 +1602,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             // answers to "which label is called this", and one of them was "none, ever".
             let labels = mail_core::query::known_labels(store);
             let accounts = mail_core::query::known_accounts(store);
-            let known = mail_core::query::Known {
+            let known = mail_logic::query::Known {
                 labels: &labels,
                 accounts: &accounts,
             };

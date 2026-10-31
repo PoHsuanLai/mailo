@@ -166,8 +166,8 @@ impl Field {
 /// rows, all of them. Any-of is `a OR b OR c`, a row on each side of every `OR`; a line that mixes
 /// `OR` with terms side by side is both at once, which rows cannot show.
 pub(in crate::ui) fn rows_of(query: &str) -> Option<(Joined, Vec<Condition>)> {
-    let tokens = mail_client::query::tokens(query);
-    if !tokens.iter().any(mail_client::query::is_either) {
+    let tokens = mail_logic::query::tokens(query);
+    if !tokens.iter().any(mail_logic::query::is_either) {
         return all_of(tokens).map(|rows| (Joined::All, rows));
     }
     // Rows on the even places, `OR` on the odd ones, and a row last.
@@ -176,7 +176,7 @@ pub(in crate::ui) fn rows_of(query: &str) -> Option<(Joined, Vec<Condition>)> {
     }
     let mut rows = Vec::new();
     for (at, token) in tokens.iter().enumerate() {
-        let either = mail_client::query::is_either(token);
+        let either = mail_logic::query::is_either(token);
         if either != (at % 2 == 1) {
             return None;
         }
@@ -188,7 +188,7 @@ pub(in crate::ui) fn rows_of(query: &str) -> Option<(Joined, Vec<Condition>)> {
 }
 
 /// Terms side by side, all of which match: words in a row join one row.
-fn all_of(tokens: Vec<mail_client::query::Token>) -> Option<Vec<Condition>> {
+fn all_of(tokens: Vec<mail_logic::query::Token>) -> Option<Vec<Condition>> {
     let mut rows: Vec<Condition> = Vec::new();
     for token in tokens {
         let row = row_of(&token)?;
@@ -209,7 +209,7 @@ fn all_of(tokens: Vec<mail_client::query::Token>) -> Option<Vec<Condition>> {
 }
 
 /// One token as a row, when a row can hold it.
-fn row_of(token: &mail_client::query::Token) -> Option<Condition> {
+fn row_of(token: &mail_logic::query::Token) -> Option<Condition> {
     let test = if token.negated { Test::IsNot } else { Test::Is };
     let Some((word, value)) = token
         .text
@@ -335,7 +335,7 @@ fn one_term(row: &Condition) -> Option<String> {
 
 /// `text` split into its words and quoted phrases, each as typed.
 fn phrases(text: &str) -> Vec<String> {
-    mail_client::query::tokens(text)
+    mail_logic::query::tokens(text)
         .into_iter()
         .map(|token| {
             if token.quoted {

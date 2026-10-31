@@ -70,7 +70,7 @@ impl Highlight {
 pub fn list_highlight<Tz: TimeZone>(
     input: &str,
     zone: &Tz,
-    label: &dyn crate::query::Names,
+    label: &dyn mail_logic::query::Names,
 ) -> Result<Highlight, CoreError> {
     let extracted = extract(input)?;
     // Operators mark nothing whoever they name, so `is:vip` needs no list here.
@@ -158,7 +158,7 @@ mod tests {
             ("郵", "校園郵件通知", &["郵"]),
         ];
         for (input, text, want) in cases {
-            let highlight = list_highlight(input, &Utc, &crate::query::unnamed)
+            let highlight = list_highlight(input, &Utc, &mail_logic::query::unnamed)
                 .unwrap_or_else(|why| panic!("{input:?}: {why}"));
             let ranges = highlight.ranges(text);
             assert_eq!(marked(text, &ranges), *want, "typed {input:?}");

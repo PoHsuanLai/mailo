@@ -55,7 +55,7 @@ pub(in crate::ui) struct Terms {
 /// text (`xfrom:ada` before `from:ada`) stays a word; what is left keeps its order, its spaces
 /// closed up.
 pub(in crate::ui) fn terms(query: &str) -> Terms {
-    let chips = search::parse(query, &Utc, &mail_client::query::unnamed).operator_tokens;
+    let chips = search::parse(query, &Utc, &mail_logic::query::unnamed).operator_tokens;
     let spans = token_spans(query);
     let mut taken = vec![false; spans.len()];
     let mut at = 0;

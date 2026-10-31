@@ -412,12 +412,6 @@ fn source_for(role: MailboxRole) -> Source {
     }
 }
 
-/// What `is:kept` finds: the conversations the person keeps handy, starred or pinned, side by
-/// side, so a search need not remember which mark they gave it.
-pub fn kept_filter() -> Filter {
-    Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned])
-}
-
 /// What the VIPs place is called, and so what a Space remembers it by.
 pub const VIPS: &str = "VIPs";
 
@@ -1136,7 +1130,7 @@ mod tests {
     #[test]
     fn kept_finds_starred_and_pinned_conversations() {
         let now = crate::support_tests::now();
-        let kept = kept_filter();
+        let kept = mail_logic::mailbox_filter::kept_filter();
         type Case = (&'static str, fn(&mut ThreadSummary), bool);
         let cases: [Case; 4] = [
             ("starred", |s| s.star = Star::Starred, true),
@@ -1248,11 +1242,11 @@ mod tests {
         let all = kept_single(&[], &waiting, Threading::Single);
         assert_eq!(threading_of(&waiting, &all), Threading::Threaded);
 
-        let mut view = crate::saved_search::Draft::from_search("is:unread");
+        let mut view = mail_logic::saved_search::Draft::from_search("is:unread");
         view.threading = Threading::Single;
         let view = view
             .build(
-                &crate::query::Known {
+                &mail_logic::query::Known {
                     labels: &[],
                     accounts: &[],
                 },

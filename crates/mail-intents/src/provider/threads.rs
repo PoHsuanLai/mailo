@@ -28,7 +28,7 @@ pub(super) fn threads_of(invocation: &Invocation) -> Result<Vec<(EntityId, Threa
 
 /// The label called `name`: exactly one, or why not.
 fn label_named(store: &SqliteStore, name: &str) -> Result<LabelId, AppRefusal> {
-    let found = mail_core::query::named(&mail_core::query::known_labels(store))(name);
+    let found = mail_logic::query::named(&mail_core::query::known_labels(store))(name);
     match found.as_slice() {
         [one] => Ok(*one),
         [] => Err(AppRefusal::Failed(format!(

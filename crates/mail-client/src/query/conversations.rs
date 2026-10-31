@@ -138,7 +138,7 @@ fn searched(
     search: &Search,
     now: DateTime<Utc>,
 ) -> Result<Found, ClientError> {
-    let label = mail_core::query::Known {
+    let label = mail_logic::query::Known {
         labels: &search.labels,
         accounts: &search.accounts,
     };

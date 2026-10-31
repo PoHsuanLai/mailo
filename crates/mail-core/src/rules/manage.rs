@@ -4,7 +4,7 @@
 //! What `mailo rules` does, asked a function at a time. Every refusal is a value ([`SaveError`],
 //! [`ConditionError`]) for a front end to word; nothing here prints or phrases.
 
-use super::{ListedRule, condition};
+use super::ListedRule;
 use crate::error::CoreError;
 use crate::error::Logged;
 use chrono::{DateTime, TimeZone, Utc};
@@ -213,7 +213,7 @@ pub fn listed(store: &SqliteStore, account: AccountId) -> Result<Vec<ListedRule>
     Ok(rules
         .into_iter()
         .map(|rule| ListedRule {
-            condition: condition(&rule.filter, &name),
+            condition: mail_logic::query::condition(&rule.filter, &name),
             rule,
         })
         .collect())
@@ -237,7 +237,7 @@ pub fn read_condition<Tz: TimeZone>(
     if text.trim().is_empty() {
         return Err(ConditionError::Blank);
     }
-    let named = crate::query::named(labels);
+    let named = mail_logic::query::named(labels);
     for word in text.split_whitespace() {
         let bare = word.strip_prefix('-').unwrap_or(word);
         if bare.starts_with('"') {
@@ -246,7 +246,7 @@ pub fn read_condition<Tz: TimeZone>(
         let Some((field, value)) = bare.split_once(':') else {
             continue;
         };
-        let alone = crate::query::parse_with(bare, zone, &named);
+        let alone = mail_logic::query::parse_with(bare, zone, &named);
         // Gmail's category is the server's to say, and a message here is never in one: a rule on
         // it would never fire, and the script pushed to the server cannot say it.
         if matches!(alone, Filter::Category(_)) {
@@ -259,7 +259,7 @@ pub fn read_condition<Tz: TimeZone>(
         }
         return Err(refused(bare, field.to_ascii_lowercase(), value));
     }
-    Ok(crate::query::parse_with(text, zone, &named))
+    Ok(mail_logic::query::parse_with(text, zone, &named))
 }
 
 /// Why `word`, whose field is `field`, is not a term.

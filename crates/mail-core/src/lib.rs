@@ -53,7 +53,6 @@ pub mod provider;
 pub mod query;
 pub mod receipt;
 pub mod rules;
-pub mod saved_search;
 pub mod search;
 pub mod server_search;
 pub mod signature;

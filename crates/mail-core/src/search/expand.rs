@@ -207,7 +207,7 @@ mod tests {
     }
 
     fn parsed(input: &str) -> Parsed {
-        parse(input, &Utc, &crate::query::unnamed)
+        parse(input, &Utc, &mail_logic::query::unnamed)
     }
 
     fn contains(filter: &Filter) -> Vec<String> {
