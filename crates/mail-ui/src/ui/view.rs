@@ -9,8 +9,8 @@ use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
 use mail_client::compose::addresses::{join_addresses, parse_addresses};
 use mail_client::conversation::{mute_for_all, offers};
-use mail_client::mailbox_filter::for_role;
 use mail_domain::*;
+use mail_logic::mailbox_filter::for_role;
 use mail_reader::{RemoteImages, SanitizePolicy};
 use porter_core::AccountId;
 use serde::de::Deserializer;
@@ -1552,7 +1552,7 @@ pub enum Listing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_client::mailbox_filter::pending_snooze;
+    use mail_logic::mailbox_filter::pending_snooze;
 
     #[test]
     fn inbox_is_just_a_filter() {
@@ -2006,7 +2006,7 @@ mod keyboard {
     use super::*;
     use chrono::{TimeZone, Utc};
     use mail_client::conversation::{allowed_actions, op_for, step};
-    use mail_client::mailbox_filter::pin_op;
+    use mail_logic::mailbox_filter::pin_op;
 
     fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
         ThreadSummary {

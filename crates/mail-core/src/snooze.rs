@@ -80,7 +80,7 @@ pub fn wake(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result
 /// level, local by construction, and needing a payload that `op_for` cannot supply.
 pub fn pin(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<bool, CoreError> {
     let loaded = store.thread(thread)?;
-    let op = crate::mailbox_filter::pin_op(&loaded.summary, now);
+    let op = mail_logic::mailbox_filter::pin_op(&loaded.summary, now);
     let pinned = matches!(op, Op::SetPin(mail_domain::Pin::Rank(_)));
     apply(store, thread, op, now)?;
     Ok(pinned)

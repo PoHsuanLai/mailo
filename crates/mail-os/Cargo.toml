@@ -15,6 +15,7 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 [dependencies]
 mail-client.workspace = true
 mail-domain.workspace = true
+mail-logic.workspace = true
 mail-proto.workspace = true
 
 # The unread count on the launcher entry (`launcher/session.rs`): one signal on the session bus.

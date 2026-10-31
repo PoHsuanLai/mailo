@@ -42,7 +42,6 @@ pub mod import;
 pub mod invite;
 pub mod junk;
 pub mod mail;
-pub mod mailbox_filter;
 pub mod message;
 pub mod notify;
 pub mod offline;

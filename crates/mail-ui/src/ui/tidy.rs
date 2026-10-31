@@ -75,7 +75,7 @@ pub(in crate::ui) fn candidates(
     now: DateTime<Utc>,
 ) -> Vec<ThreadSummary> {
     let filter = Filter::And(vec![
-        mail_client::mailbox_filter::for_role(MailboxRole::Inbox),
+        mail_logic::mailbox_filter::for_role(MailboxRole::Inbox),
         Filter::Read(ReadState::Read),
         Filter::Not(Box::new(Filter::Starred(Star::Starred))),
         Filter::Not(Box::new(Filter::Pinned)),

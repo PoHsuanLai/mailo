@@ -23,9 +23,9 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
-use mail_client::mailbox_filter::{for_role, pending_snooze};
 use mail_client::query::{self};
 use mail_domain::*;
+use mail_logic::mailbox_filter::{for_role, pending_snooze};
 
 /// The most pinned conversations Favourites shows: the most recently pinned. Every pinned
 /// conversation is in Pinned.

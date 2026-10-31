@@ -281,7 +281,7 @@ pub(super) fn resolve(client: &Client, thread: ThreadId, kind: OpKind) -> Option
     match kind {
         OpKind::Pin => {
             let loaded = client.stored().thread(thread).ok()?;
-            Some(mail_client::mailbox_filter::pin_op(
+            Some(mail_logic::mailbox_filter::pin_op(
                 &loaded.summary,
                 chrono::Utc::now(),
             ))

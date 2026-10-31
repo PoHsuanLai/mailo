@@ -1499,7 +1499,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             // what the other has put away.
             let page = store
                 .threads(
-                    &list_query(mail_core::mailbox_filter::for_role(*mailbox), *limit),
+                    &list_query(mail_logic::mailbox_filter::for_role(*mailbox), *limit),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -1691,7 +1691,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         Command::ListSnoozed { limit } => {
             let page = store
                 .threads(
-                    &list_query(mail_core::mailbox_filter::pending_snooze(), *limit),
+                    &list_query(mail_logic::mailbox_filter::pending_snooze(), *limit),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -1932,10 +1932,10 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             let mut out = String::new();
             for role in MailboxRole::ALL {
                 // What the window's place lists: Archive is what is not in the inbox too.
-                let place = mail_core::mailbox_filter::for_role(role);
+                let place = mail_logic::mailbox_filter::for_role(role);
                 let total = store.count(&place, now).map_err(|e| e.to_string())?;
                 let unread = store
-                    .count(&mail_core::mailbox_filter::unread_in(place), now)
+                    .count(&mail_logic::mailbox_filter::unread_in(place), now)
                     .map_err(|e| e.to_string())?;
                 if total > 0 {
                     let _ = writeln!(out, "{:<8} {:>5} total  {:>5} unread", role, total, unread);

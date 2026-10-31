@@ -32,7 +32,7 @@ pub fn for_role(role: MailboxRole) -> Filter {
             Filter::InMailbox(MailboxRole::Inbox),
             Filter::Not(Box::new(pending_snooze())),
         ]),
-        // Archived is filed in Archive with nothing in the inbox ([`crate::conversation::Whereabouts`]).
+        // Archived is filed in Archive with nothing in the inbox (`mail_core::conversation::Whereabouts`).
         // A thread's mailboxes are the union over its messages, and on Gmail All Mail is filed
         // as Archive and holds the inbox's mail too, so "has a message in Archive" listed every
         // inbox conversation here as well, and its menu offered Archive to what looked archived.

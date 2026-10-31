@@ -499,7 +499,7 @@ fn open_thread(shell: &mut Shell, thread: ThreadId) {
 fn select_inbox(shell: &mut Shell) {
     if let Some(inbox) = shell.places.iter().position(|place| {
         place.source
-            == crate::ui::view::Source::Mail(mail_client::mailbox_filter::for_role(
+            == crate::ui::view::Source::Mail(mail_logic::mailbox_filter::for_role(
                 mail_domain::MailboxRole::Inbox,
             ))
     }) {

@@ -5414,6 +5414,7 @@ dependencies = [
  "mail-appkit",
  "mail-client",
  "mailo-domain",
+ "mailo-logic",
  "mailo-proto",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",

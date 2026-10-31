@@ -8,6 +8,7 @@
 //! A module that needs the time or the store takes it as a value or a trait the caller hands in
 //! (an instant, a trait over the store); none reads one itself.
 
+pub mod mailbox_filter;
 pub mod password;
 pub mod picture;
 pub mod remedy;

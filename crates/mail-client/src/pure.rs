@@ -130,9 +130,6 @@ pub mod pgp {
         pub use mail_core::pgp::keys::export_public;
     }
 }
-pub mod mailbox_filter {
-    pub use mail_core::mailbox_filter::{for_role, pending_snooze, pin_op, role_of, unread_in};
-}
 pub mod attachment_image {
     pub use mail_core::attachment_image::{
         Kind, LARGE, PDF_PAGE, Page, Picture, SMALL, Unavailable, pdf_page, picture, sniff,
