@@ -31,7 +31,7 @@ pub(super) fn recall_of(shell: &Shell) -> Recall {
 pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
     shell.selected = crate::ui::view::find_place(&shell.places, &recall.place).unwrap_or(0);
     shell.open = recall.open;
-    shell.picked = crate::ui::selection::Picked::none();
+    shell.picked = mail_ui_model::selection::Picked::none();
     shell.show_remote_images = false;
     shell.search.clear();
     shell.quick = crate::ui::quick::Quick::default();

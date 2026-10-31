@@ -16,7 +16,7 @@ fn read(rows: &[MenuItem<&'static dyn Command>]) -> Vec<(String, bool)> {
 /// Space's menu.
 #[test]
 fn the_menu_holds_exactly_tidy_up_settings_and_the_sidebar_toggle() {
-    use crate::ui::copy::menus::{HIDE_SIDEBAR, SETTINGS, SHOW_SIDEBAR, TIDY_UP};
+    use mail_ui_model::copy::menus::{HIDE_SIDEBAR, SETTINGS, SHOW_SIDEBAR, TIDY_UP};
     for (shown, toggle) in [
         (Shown::Visible, HIDE_SIDEBAR),
         (Shown::Hidden, SHOW_SIDEBAR),

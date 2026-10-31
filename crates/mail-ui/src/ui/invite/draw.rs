@@ -4,7 +4,6 @@ use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
-use crate::ui::copy::{aria, controls, fields};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -20,6 +19,7 @@ use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_client::message::Looks;
 use mail_domain::{Attendance, BlobId, MessageId};
+use mail_ui_model::copy::{aria, controls, fields};
 use std::sync::Arc;
 
 /// A description longer than this many lines or characters is folded, with More.

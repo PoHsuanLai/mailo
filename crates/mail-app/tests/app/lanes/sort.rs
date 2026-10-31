@@ -4,8 +4,8 @@
 
 use ds_harness::Harness;
 use mail_domain::{Property, Sort, SortDir};
-use mail_ui::settings::ListOrder;
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
+use mail_ui_model::settings::ListOrder;
 
 use super::look::row;
 use super::seed::INBOX;
@@ -58,13 +58,17 @@ fn the_list_sorts_from_its_more_menu_and_keeps_the_order() {
     window.until("the inbox is Z to A", |h| subjects(h) == want);
 
     // The order is written a moment after the choice, off the drawing thread.
-    let root = mail_ui::settings::root_for(&window.dirs().config);
+    let root = mail_ui_model::settings::root_for(&window.dirs().config);
     let want = Some(ListOrder(Sort {
         property: Property::Subject,
         dir: SortDir::Desc,
     }));
     window.until("the order is kept under the inbox's key", move |_| {
-        mail_ui::settings::load(&root).window.sorts.get(INBOX_KEY) == want.as_ref()
+        mail_ui_model::settings::load(&root)
+            .window
+            .sorts
+            .get(INBOX_KEY)
+            == want.as_ref()
     });
 
     // Back to the date, which runs newest first when picked.
@@ -82,8 +86,8 @@ fn a_kept_order_is_the_list_s_when_the_window_opens() {
         chrono::Utc::now(),
         |_| {},
         |dir, contexts| {
-            let root = mail_ui::settings::root_for(&dir.join("config"));
-            mail_ui::settings::change(&root, |settings| {
+            let root = mail_ui_model::settings::root_for(&dir.join("config"));
+            mail_ui_model::settings::change(&root, |settings| {
                 settings
                     .window
                     .sorts

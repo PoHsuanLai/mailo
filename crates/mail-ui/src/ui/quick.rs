@@ -10,8 +10,8 @@
 //! Per window and per visit, as Apple Mail's is: going to another place drops it
 //! ([`crate::ui::view::Shell::select`]), and it is written nowhere.
 
-use crate::ui::copy;
 use mail_domain::Filter;
+use mail_ui_model::copy;
 
 /// One toggle of the quick filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

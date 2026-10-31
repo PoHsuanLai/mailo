@@ -6,7 +6,7 @@
 use ds_harness::Harness;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{IdentityId, IsDefault};
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 use std::sync::Arc;
 
 use super::drive::{Key, PRIMARY};

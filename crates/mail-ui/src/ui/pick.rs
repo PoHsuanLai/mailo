@@ -77,14 +77,14 @@ impl Dialogs {
                 // What `mail_core::compose::shows_inline` takes.
                 Ask::Images => dialog
                     .add_filter(
-                        crate::ui::copy::fields::PICTURES,
+                        mail_ui_model::copy::fields::PICTURES,
                         &["png", "jpg", "jpeg", "gif", "webp"],
                     )
                     .pick_files()
                     .unwrap_or_default(),
                 Ask::Picture => dialog
                     .add_filter(
-                        crate::ui::copy::fields::PICTURE_FILES,
+                        mail_ui_model::copy::fields::PICTURE_FILES,
                         &["png", "jpg", "jpeg", "gif", "webp"],
                     )
                     .pick_file()

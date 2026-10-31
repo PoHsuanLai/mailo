@@ -13,7 +13,8 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 # The app layer's OS integration. It must reach no dioxus, ds, blitz or quire: what it does is not
 # drawing, and a crate that lacks the dependency is the boundary (`scripts/check-boundary.sh`).
 [dependencies]
-mail-client.workspace = true
+# `desktop`: the notification service `desktop::connect` joins to the platform's.
+mail-client = { workspace = true, features = ["desktop"] }
 mail-domain.workspace = true
 mail-proto.workspace = true
 

@@ -39,7 +39,7 @@ enum Local {
 /// domain) and the cache, read from disk. Blocking.
 fn local(
     checks: impl FnOnce() -> Option<mail_mime::AuthResults>,
-    logos: crate::settings::BrandLogos,
+    logos: mail_ui_model::settings::BrandLogos,
     config: &std::path::Path,
     cache: &std::path::Path,
     from: &str,
@@ -181,7 +181,7 @@ pub(in crate::ui) fn ReaderAvatar(
     let photo = use_card_photo(from.clone());
     let logo = use_brand_logo(message, body, from.clone());
     if let Some(src) = photo() {
-        let alt = crate::ui::copy::aria::photo_of(&from);
+        let alt = mail_ui_model::copy::aria::photo_of(&from);
         let side = side_of(face.size);
         return rsx! {
             div { class: "reader-av reader-logo", style: "width: {side}px; height: {side}px;",

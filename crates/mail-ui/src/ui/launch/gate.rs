@@ -1,18 +1,18 @@
 //! Before the window opens over a settings file that is there and cannot be read: a dialog that
-//! names each and asks. Use Defaults sets them aside (`crate::damage::set_aside`) and opens;
+//! names each and asks. Use Defaults sets them aside (`mail_ui_model::damage::set_aside`) and opens;
 //! Quit ends mailo with every file as it was. Nothing in the window mounts, and so nothing reads
 //! or writes those files, before the answer.
 
 use super::Shell;
-use crate::damage::{Damaged, moved, of_config, set_aside};
 use crate::ui::app::Frame;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::{keymap, space, today};
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
+use mail_ui_model::copy;
+use mail_ui_model::damage::{Damaged, moved, of_config, set_aside};
 
 /// The damaged files the window was opened over: a root context, found by [`found`] before the
 /// window opened. None, or no context, opens the window at once.

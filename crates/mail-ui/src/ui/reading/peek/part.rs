@@ -19,10 +19,10 @@ use mail_domain::MessageId;
 
 use super::own::Sheet;
 use super::previewer::{self, HEAD, Part};
-use crate::ui::copy;
 use crate::ui::remedy::plainly;
 use crate::ui::view::{Preview, Shell, Viewing};
 use mail_client::attachment_image::{self, Kind, Page, Picture, Unavailable};
+use mail_ui_model::copy;
 
 /// What Peek draws for a part.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -476,10 +476,10 @@ fn SheetView(sheet: Sheet) -> Element {
 #[cfg(test)]
 mod tests {
     use super::{LEFT_OPEN_FOR, OPEN_PREFIX, sweep_in, write_for_open};
-    use crate::settings::RemoveUnedited;
     use crate::ui::downloads::unedited;
     use crate::ui::view::Viewing;
     use mail_core::Store as _;
+    use mail_ui_model::settings::RemoveUnedited;
     use std::time::SystemTime;
 
     /// Open writes a copy of the part and records it: the quit removes it, unedited, under When

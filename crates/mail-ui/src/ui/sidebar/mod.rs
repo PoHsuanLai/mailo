@@ -20,7 +20,6 @@ use self::folders::FolderList;
 use self::panes::{Favourites, PlaceList, counted_of, pins_of};
 pub(in crate::ui) use self::panes::{hex_colour, place_icon};
 use self::tiles::{AccountTiles, tile_filter, tile_rows};
-use crate::ui::copy;
 use crate::ui::live::use_live;
 use crate::ui::space::{Handle, Mail};
 use crate::ui::view::Shell;
@@ -32,6 +31,7 @@ use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
 use ds::style::scope::use_scope;
 use mail_client::profile::ProfileId;
+use mail_ui_model::copy;
 
 /// A `data-<name>` of mailo's own on a quire component: where a hover card or a test finds the
 /// thing the element stands for.

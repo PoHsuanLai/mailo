@@ -29,13 +29,13 @@ use mail_client::profile::ProfileId;
 use porter_core::AccountId;
 
 use super::Join;
-use super::host::{self, Ended, Shown};
 use super::map::{self, Action, Out, Sheet, Step};
-use super::provider::{Added, Seams};
 use super::size;
 use crate::ui::app::Frame;
 use crate::ui::space::{self, Spaces};
 use crate::ui::style::STYLE;
+use mail_ui_model::add_account::host::{self, Ended, Shown};
+use mail_ui_model::add_account::provider::{Added, Seams};
 
 /// Open an address in the system browser.
 pub type Browse = dyn Fn(&str) -> Result<(), String> + Send + Sync;

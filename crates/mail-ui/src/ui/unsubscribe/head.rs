@@ -97,7 +97,7 @@ pub(in crate::ui) fn Confirm(offer: Offer, asked: Ask, phase: Signal<Phase>) -> 
         })
         .collect();
     buttons.push(AlertButton::new(
-        crate::ui::copy::controls::CANCEL,
+        mail_ui_model::copy::controls::CANCEL,
         AlertRole::Cancel,
         close,
     ));

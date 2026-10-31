@@ -38,7 +38,7 @@ pub(in crate::ui) fn reading_column(
         (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell } },
         (None, Some(thread)) => rsx! { Reader { thread, shell, tools: true, place, only } },
         (None, None) => rsx! {
-            EmptyState { form: EmptyForm::Empty, title: crate::ui::copy::empty::NO_MESSAGE_SELECTED }
+            EmptyState { form: EmptyForm::Empty, title: mail_ui_model::copy::empty::NO_MESSAGE_SELECTED }
         },
     }
 }

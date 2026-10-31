@@ -17,7 +17,7 @@ use super::certs::{IMPORT, cert_items, quiet_item};
 use super::key_row::{Asking, Confirm, KeyRow};
 use super::keys::{Done, Job, keyless, ordered, work};
 use super::{Busy, seams, who};
-use crate::ui::copy;
+use mail_ui_model::copy;
 
 /// Whose keys and certificates a [`KeysPage`] lists.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +67,7 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
         Err(why) => (
             Vec::new(),
             Some(crate::ui::remedy::plainly(
-                crate::ui::copy::errors::NOT_READ_HERE,
+                mail_ui_model::copy::errors::NOT_READ_HERE,
                 why,
             )),
         ),
@@ -77,7 +77,7 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
         Err(why) => (
             Vec::new(),
             Some(crate::ui::remedy::plainly(
-                crate::ui::copy::errors::NOT_READ_HERE,
+                mail_ui_model::copy::errors::NOT_READ_HERE,
                 why,
             )),
         ),
@@ -203,7 +203,7 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
     };
     let empty = items.is_empty();
     rsx! {
-        Told { title: crate::ui::copy::titles::KEYS_FAILED, said }
+        Told { title: mail_ui_model::copy::titles::KEYS_FAILED, said }
         // The group's title heads its first list: the keys, or with none, what adds one.
         if !items.is_empty() {
             FormSection { title: title.clone(),

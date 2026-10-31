@@ -20,7 +20,6 @@ use super::panel::{Drawn, Fetch, World, panel_rows};
 use super::sections::{completion, lights};
 use super::suggest::suggestions;
 use crate::ui::actions::{self, Heard, Own};
-use crate::ui::copy;
 use crate::ui::menu::anchor_at;
 use crate::ui::space::Spaces;
 use crate::ui::view::{Bar, BarListing, BarOpen, Shell};
@@ -29,6 +28,7 @@ use ds::base::geometry::placement::{Align, Side};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_ui_model::copy;
 
 /// What the panel's field is called, to a screen reader and to a test.
 pub(in crate::ui) const LABEL: &str = "Search mail and commands";

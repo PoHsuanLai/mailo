@@ -27,12 +27,12 @@ fn an_empty_field_lists_recent_then_places_then_commands() {
         row("person:dana@example.org", "Dana", items::PEOPLE),
         row(
             "action:compose",
-            crate::ui::copy::menus::NEW_MESSAGE,
+            mail_ui_model::copy::menus::NEW_MESSAGE,
             items::ACTIONS,
         ),
         row(
             "action:settings",
-            crate::ui::copy::menus::SETTINGS,
+            mail_ui_model::copy::menus::SETTINGS,
             items::ACTIONS,
         ),
     ];
@@ -64,7 +64,7 @@ fn typed_text_lists_places_and_people_then_commands_and_no_mail() {
         row("person:dana@example.org", "Dana", items::PEOPLE),
         row(
             "action:compose",
-            crate::ui::copy::menus::NEW_MESSAGE,
+            mail_ui_model::copy::menus::NEW_MESSAGE,
             items::ACTIONS,
         ),
     ];
@@ -171,10 +171,14 @@ fn places_and_spaces_are_found_by_name_and_listed_at_rest() {
 fn typed_text_lights_a_row_it_names() {
     const CASES: &[(&str, &str, bool)] = &[
         ("Inbox", "inb", true),
-        (crate::ui::copy::menus::ADD_ACCOUNT, "acc", true),
-        (crate::ui::copy::menus::ADD_ACCOUNT, "add acc", true),
-        (crate::ui::copy::menus::FORWARD_AS_ATTACHMENT, "re", false),
-        (crate::ui::copy::menus::SETTINGS, "lunch", false),
+        (mail_ui_model::copy::menus::ADD_ACCOUNT, "acc", true),
+        (mail_ui_model::copy::menus::ADD_ACCOUNT, "add acc", true),
+        (
+            mail_ui_model::copy::menus::FORWARD_AS_ATTACHMENT,
+            "re",
+            false,
+        ),
+        (mail_ui_model::copy::menus::SETTINGS, "lunch", false),
         ("Inbox", "  ", false),
     ];
     for (name, query, want) in CASES {
@@ -205,8 +209,8 @@ fn tab_completes_a_row_as_its_text() {
     const CASES: &[(&str, &str, &str)] = &[
         (
             "action:settings",
-            crate::ui::copy::menus::SETTINGS,
-            crate::ui::copy::menus::SETTINGS,
+            mail_ui_model::copy::menus::SETTINGS,
+            mail_ui_model::copy::menus::SETTINGS,
         ),
         ("person:dana@example.org", "Dana", "from:dana@example.org"),
         ("place:2", "Projects", "Projects"),

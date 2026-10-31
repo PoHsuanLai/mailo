@@ -19,8 +19,6 @@ use super::super::row::act::{Pressed, press};
 use super::super::row::menu::{Pick, reader_groups, rows_blocking, with_files};
 use super::super::toolbar::{Tool, ToolButton};
 use super::fetch;
-use crate::ui::copy;
-use crate::ui::copy::menus::offered;
 use crate::ui::downloads::{Origin, Saving};
 use crate::ui::menu::{Floating, MenuItem, Right, anchor_at};
 use crate::ui::menus::FurtherMenus;
@@ -37,6 +35,8 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
 use mail_client::conversation::says;
 use mail_domain::*;
+use mail_ui_model::copy;
+use mail_ui_model::copy::menus::offered;
 use std::path::{Path, PathBuf};
 
 /// The view menu's modes, in the order it lists them.
@@ -225,7 +225,7 @@ pub(super) fn ReaderMore(
                 anchor: anchor_at(tool()),
                 items,
                 common: Common {
-                    aria_label: Some(crate::ui::copy::aria::actions_for(&summary.subject)),
+                    aria_label: Some(mail_ui_model::copy::aria::actions_for(&summary.subject)),
                     ..Common::default()
                 },
                 onpick: move |pick: Pick| {

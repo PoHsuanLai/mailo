@@ -7,7 +7,6 @@
 //! gesture with one undo.
 
 use crate::ui::common::in_card;
-use crate::ui::copy;
 use crate::ui::press::{SheetClose, available, on_primary};
 use crate::ui::view::Shell;
 use chrono::{DateTime, TimeDelta, Utc};
@@ -27,6 +26,7 @@ use ds::prelude::*;
 use mail_client::Client;
 use mail_client::when::Clock;
 use mail_domain::*;
+use mail_ui_model::copy;
 
 /// How many conversations one page of the search reads.
 const PAGE: u32 = 500;

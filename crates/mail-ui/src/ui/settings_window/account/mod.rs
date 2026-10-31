@@ -27,7 +27,6 @@ mod words;
 
 use crate::ui::appearance::WindowDirs;
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::data::{AccountRow, use_account_rows};
 use crate::ui::fetching::{Need, Needing, use_needs};
 use crate::ui::pgp::keys::Whose;
@@ -44,6 +43,7 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::Storage;
 use mail_client::prelude::AccountSecrets;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::sync::Arc;
 

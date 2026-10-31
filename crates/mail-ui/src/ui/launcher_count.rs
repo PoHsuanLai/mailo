@@ -26,7 +26,7 @@ pub(super) fn use_launcher_count(shell: Signal<Shell>) {
                 return None;
             }
             tokio::task::spawn_blocking(move || {
-                let places = crate::settings::badge_places();
+                let places = mail_ui_model::settings::badge_places();
                 let stored = client.stored();
                 let followed = match places {
                     mail_client::notify::Places::Inbox => Vec::new(),

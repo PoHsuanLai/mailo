@@ -17,7 +17,7 @@ fn opened(built: &Work) -> (VirtualDom, Seen) {
 }
 
 fn label() -> String {
-    crate::ui::copy::fields::DOWNLOAD_ALL_MAIL.to_owned()
+    mail_ui_model::copy::fields::DOWNLOAD_ALL_MAIL.to_owned()
 }
 
 /// Whether the account's switch is drawn on, as the page draws it: the switch is the button

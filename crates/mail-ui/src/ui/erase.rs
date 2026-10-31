@@ -7,9 +7,9 @@
 //! On a blocking thread, as the counts are. Nothing at all is read under the defaults, which keep
 //! mail until it is erased by hand.
 
-use crate::settings::MailSettings;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use mail_ui_model::settings::MailSettings;
 use std::time::Duration;
 
 /// How often the time in Trash and Spam is looked at when nothing else moves.

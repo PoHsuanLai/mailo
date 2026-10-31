@@ -357,7 +357,7 @@ async fn the_section_draws_nested_folders_and_leaves_out_places_and_unfollowed_o
         "{page}"
     );
     assert!(
-        page.contains(crate::ui::copy::menus::SHOW_ALL_FOLDERS),
+        page.contains(mail_ui_model::copy::menus::SHOW_ALL_FOLDERS),
         "{page}"
     );
 }
@@ -387,7 +387,7 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     }
     let menu = dioxus_ssr::render(&dom);
     assert!(menu.contains("class=\"ds-menu"), "{menu}");
-    use crate::ui::copy::menus;
+    use mail_ui_model::copy::menus;
     for item in [
         menus::NEW_FOLDER_INSIDE,
         menus::RENAME,
@@ -400,7 +400,7 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     let first = seen.fixed("class", "ds-menu-item")[0];
     let picked = click(&mut dom, first);
     let seen = picked.merge(later(&mut dom).await);
-    let field = seen.one("aria-placeholder", crate::ui::copy::fields::NEW_FOLDER);
+    let field = seen.one("aria-placeholder", mail_ui_model::copy::fields::NEW_FOLDER);
     type_into(&mut dom, field, "a/b");
     chord(&mut dom, "Enter", Modifiers::empty(), field);
     let naming = dioxus_ssr::render(&dom);
@@ -434,7 +434,7 @@ async fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfi
     let picked = click(&mut dom, rename);
     let field = picked
         .merge(later(&mut dom).await)
-        .one("aria-placeholder", crate::ui::copy::fields::FOLDER_NAME);
+        .one("aria-placeholder", mail_ui_model::copy::fields::FOLDER_NAME);
     (dom, field, store, dir)
 }
 

@@ -48,14 +48,14 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     let quit_root = dirs
         .as_ref()
         .and_then(crate::ui::prefs::root_of)
-        .or_else(crate::settings::person_root);
+        .or_else(mail_ui_model::settings::person_root);
     // Whether they are on is asked as each is said (`follow_up::speaking`), so Settings' switch
     // takes effect without a restart.
     // Which mailboxes, which sound and which accounts are muted are read as well, for the same
     // reason (`settings::Notices`).
     let notices = dirs.as_ref().map(|dirs| {
-        let desktop = crate::desktop::connect_in_window();
-        crate::ui::follow_up::Notices(std::sync::Arc::new(crate::settings::Notices::new(
+        let desktop = mail_os::desktop::connect_in_window();
+        crate::ui::follow_up::Notices(std::sync::Arc::new(mail_ui_model::settings::Notices::new(
             Box::new(move |notification, sound| desktop.show_with(notification, sound)),
             crate::ui::prefs::root_of(dirs),
         )))
@@ -64,7 +64,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     let while_quit = dirs
         .as_ref()
         .and_then(crate::ui::prefs::root_of)
-        .map(|root| crate::settings::load(&root).sync.while_quit);
+        .map(|root| mail_ui_model::settings::load(&root).sync.while_quit);
     // The one client every window reads mail through, reaching the servers as the program does.
     let super::Program {
         client,
@@ -155,7 +155,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // program where it is.
     let config = match mail_os::login_item::platform() {
         Some(items) => {
-            if while_quit == Some(crate::settings::WhileQuit::On) {
+            if while_quit == Some(mail_ui_model::settings::WhileQuit::On) {
                 let kept = items.clone();
                 // Off the thread that draws: `launchctl` and SMAppService take their time.
                 let started = std::thread::Builder::new()
@@ -213,7 +213,9 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
 fn clean_up_at_quit(root: Option<&ds_settings::ConfigRoot>) {
     if let Some(root) = root {
         crate::ui::downloads::unedited::remove_on_quit(
-            crate::settings::load(root).attachments.remove_unedited,
+            mail_ui_model::settings::load(root)
+                .attachments
+                .remove_unedited,
         );
     }
 }
@@ -221,8 +223,8 @@ fn clean_up_at_quit(root: Option<&ds_settings::ConfigRoot>) {
 #[cfg(test)]
 mod quit_tests {
     use super::clean_up_at_quit;
-    use crate::settings::RemoveUnedited;
     use crate::ui::downloads::unedited;
+    use mail_ui_model::settings::RemoveUnedited;
 
     /// The quit asks the settings under its root, and removes the recorded copies only under When
     /// Mailo Quits; with no settings to ask it removes nothing.
@@ -236,7 +238,7 @@ mod quit_tests {
         std::fs::create_dir_all(&root).expect("Open's folder");
         let config = scratch.path().join("config");
         std::fs::create_dir_all(&config).expect("the config folder");
-        let settings = crate::settings::root_for(&config);
+        let settings = mail_ui_model::settings::root_for(&config);
         let copy = root.join("plans.txt");
         std::fs::write(&copy, b"plans").expect("a copy");
         unedited::record(&root, &copy, mail_domain::MessageId::generate());
@@ -244,12 +246,14 @@ mod quit_tests {
         clean_up_at_quit(None);
         assert!(copy.exists(), "removed with no settings to ask");
         for setting in [RemoveUnedited::Never, RemoveUnedited::AfterMessageIsDeleted] {
-            crate::settings::change(&settings, |all| all.attachments.remove_unedited = setting)
-                .expect("the setting is written");
+            mail_ui_model::settings::change(&settings, |all| {
+                all.attachments.remove_unedited = setting
+            })
+            .expect("the setting is written");
             clean_up_at_quit(Some(&settings));
             assert!(copy.exists(), "removed at quit under {setting:?}");
         }
-        crate::settings::change(&settings, |all| {
+        mail_ui_model::settings::change(&settings, |all| {
             all.attachments.remove_unedited = RemoveUnedited::WhenMailoQuits;
         })
         .expect("the setting is written");

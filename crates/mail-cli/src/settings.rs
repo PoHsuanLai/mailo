@@ -1,8 +1,8 @@
-//! The command line's half of `mail_ui::settings`: `mailo notify [on|off]`, and
+//! The command line's half of `mail_ui_model::settings`: `mailo notify [on|off]`, and
 //! `mailo --write-schema <dir>`, which writes the schema the desktop's Settings app reads.
 
-use mail_ui::settings::ConfigRoot;
-use mail_ui::settings::{self, NewMail};
+use mail_ui_model::settings::ConfigRoot;
+use mail_ui_model::settings::{self, NewMail};
 
 /// `mailo notify [on|off]`: set new-mail notifications, then say which they are. With no config
 /// directory there is nowhere they are kept, and it says so rather than guess.
@@ -35,7 +35,7 @@ pub fn notify(
 mod tests {
     use super::notify;
     use mail_core::notify::Setting;
-    use mail_ui::settings::ConfigRoot;
+    use mail_ui_model::settings::ConfigRoot;
 
     #[test]
     fn notify_writes_settings_toml_and_says_what_it_is() {

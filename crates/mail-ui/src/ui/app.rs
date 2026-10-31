@@ -12,7 +12,6 @@ use super::reading::{ReaderIn, reading_column};
 use super::sidebar::Places;
 use super::style::STYLE;
 use super::window_core::{use_window_core, use_window_desk};
-use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
 use crate::ui::view::{
     Appearance, Listing, PageMenu, Peek, Shell, Shortcut, nothing_to_show, places_with,
@@ -28,6 +27,7 @@ use ds::style::kit::Styles;
 use ds_settings::Environment;
 use mail_client::profile::ProfileId;
 use mail_domain::*;
+use mail_ui_model::selection::Toward;
 
 /// The Spaces the window opens on, `first` as stored: a window started from a click (`mailo
 /// open`, its conversation already in the shell) opens on the Space [`ask::space_for`] chooses
@@ -64,7 +64,7 @@ pub(super) fn App() -> Element {
                 .unwrap_or_default(),
             // The orders chosen for the places, where the window's root already read them; the
             // effect after `use_prefs` below reads them where it did not.
-            sorts: crate::settings::sorts_of(&crate::ui::prefs::current().window),
+            sorts: mail_ui_model::settings::sorts_of(&crate::ui::prefs::current().window),
             ..Shell::default()
         };
         // What the window was started to show (`mailo open`, a banner's click): its conversation
@@ -156,7 +156,7 @@ pub(super) fn App() -> Element {
     let prefs = super::prefs::use_prefs(dirs.as_ref());
     // The places' orders follow `settings.toml`, so one chosen in another window sorts this one.
     use_effect(move || {
-        let sorts = crate::settings::sorts_of(&prefs.read().window);
+        let sorts = mail_ui_model::settings::sorts_of(&prefs.read().window);
         if shell.peek().sorts != sorts {
             shell.write().sorts = sorts;
         }
@@ -1056,7 +1056,7 @@ mod tests {
 
         assert!(markup.contains("No account"), "{markup}");
         assert!(
-            markup.contains(crate::ui::copy::controls::ADD_ACCOUNT),
+            markup.contains(mail_ui_model::copy::controls::ADD_ACCOUNT),
             "no way to add an account:\n{markup}"
         );
         assert!(
@@ -1303,7 +1303,7 @@ mod tests {
         let (client, _dir) = realistic();
         assert!(markup(client).contains(&format!(
             "aria-label=\"{}\"",
-            crate::ui::copy::aria::NEW_MESSAGE
+            mail_ui_model::copy::aria::NEW_MESSAGE
         )));
     }
 
@@ -1455,13 +1455,13 @@ mod tests {
     ) -> crate::ui::fixtures::Seen {
         use crate::ui::fixtures::{click, drain_seen, pick_named};
         let more = *seen
-            .all("aria-label", crate::ui::copy::aria::MORE)
+            .all("aria-label", mail_ui_model::copy::aria::MORE)
             .last()
             .expect("no reader ⋯");
         click(dom, more);
         // Only the rows this menu drew: what was seen before may hold an earlier menu's.
         let drawn = drain_seen(dom);
-        let viewing = pick_named(dom, &drawn, crate::ui::copy::menus::VIEW).await;
+        let viewing = pick_named(dom, &drawn, mail_ui_model::copy::menus::VIEW).await;
         let viewing = viewing.merge(drain_seen(dom));
         let after = pick_named(dom, &viewing, label).await;
         seen.merge(drawn).merge(viewing).merge(after)
@@ -1512,7 +1512,7 @@ mod tests {
                 ));
             }
             if *action == "start" {
-                if !page.contains(crate::ui::copy::empty::NO_MESSAGE_SELECTED) {
+                if !page.contains(mail_ui_model::copy::empty::NO_MESSAGE_SELECTED) {
                     failures.push(format!(
                         "the empty reader does not say what is open:\n{page}"
                     ));

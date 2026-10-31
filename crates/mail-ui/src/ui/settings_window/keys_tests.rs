@@ -65,7 +65,7 @@ fn each_kind_gets_the_control_detent_gives_it() {
 
 #[test]
 fn a_word_reads_as_its_label_or_as_itself() {
-    let schema = crate::settings::schema();
+    let schema = mail_ui_model::settings::schema();
     let marks = schema
         .key
         .iter()
@@ -78,7 +78,7 @@ fn a_word_reads_as_its_label_or_as_itself() {
 
 #[test]
 fn a_value_is_read_and_set_by_its_path() {
-    let schema = crate::settings::schema();
+    let schema = mail_ui_model::settings::schema();
     let spelling = schema
         .key
         .iter()

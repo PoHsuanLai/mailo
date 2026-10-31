@@ -11,7 +11,7 @@
 //! that draws. What they answer on failure is a [`NotOpened`]: a sentence the window shows as it
 //! is, or a library's words it says plainly ([`NotOpened::told`]).
 
-use crate::ui::copy::errors::{couldnt_open, moved_or_deleted};
+use mail_ui_model::copy::errors::{couldnt_open, moved_or_deleted};
 use std::path::Path;
 use std::process::Command;
 
@@ -52,7 +52,7 @@ fn opened(
     }
     if let Some(name) = runs_when_opened(path) {
         reveal(path)?;
-        return Err(NotOpened::Said(crate::ui::copy::toasts::shown_not_run(
+        return Err(NotOpened::Said(mail_ui_model::copy::toasts::shown_not_run(
             &name,
         )));
     }
@@ -216,7 +216,7 @@ fn show_items(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{NotOpened, opened, opener};
-    use crate::ui::copy::errors::FILE_NOT_OPENED;
+    use mail_ui_model::copy::errors::FILE_NOT_OPENED;
     use std::path::Path;
 
     fn never(_: &Path) -> Result<(), NotOpened> {
@@ -239,13 +239,16 @@ mod tests {
         let said = opened(&program, |_| Ok(()), never)
             .unwrap_err()
             .told(FILE_NOT_OPENED);
-        assert_eq!(said, crate::ui::copy::toasts::shown_not_run("setup.exe"));
+        assert_eq!(
+            said,
+            mail_ui_model::copy::toasts::shown_not_run("setup.exe")
+        );
         assert!(said.contains("shown in its folder"), "{said}");
 
         let file = dir.path().join("notes.txt");
         std::fs::write(&file, b"hi").unwrap();
         let refused = |_: &Path| {
-            Err(NotOpened::Said(crate::ui::copy::errors::couldnt_open(
+            Err(NotOpened::Said(mail_ui_model::copy::errors::couldnt_open(
                 "the opener exited with exit status: 4",
             )))
         };

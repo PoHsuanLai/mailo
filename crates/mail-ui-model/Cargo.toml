@@ -1,0 +1,54 @@
+[package]
+name = "mail-ui-model"
+# The app layer: what the window knows and says, drawing nothing; not a library for others.
+publish = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "mailo's window without the drawing: the settings files, the words, and the state the window moves through"
+repository = "https://github.com/PoHsuanLai/mailo"
+authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
+
+# The window's view-models, state machines and words, and the settings files the command line reads
+# too. It must reach no dioxus, ds, blitz or quire: it draws nothing, and a crate that lacks the
+# dependency is the boundary (`scripts/check-boundary.sh`). `ds-core` (the `Word` vocabulary a
+# settings value is stored as) and `ds-settings` (the settings-file library, built without its
+# `dioxus` feature) are quire's pure parts and are all of quire it names.
+[dependencies]
+mail-client.workspace = true
+mail-domain.workspace = true
+ds-core = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e19728b7ee9e369d360c646bf5e7ed559bc3d6f9" }  # e19728b7 (v0.3.58; forks blitz 841386a7, blitz-kit fd08b468)
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e19728b7ee9e369d360c646bf5e7ed559bc3d6f9" }  # e19728b7 (v0.3.58; forks blitz 841386a7, blitz-kit fd08b468)
+serde.workspace = true
+mail-reader.workspace = true
+# Porter's account service, hosted in this process for the Add account window
+# (`add_account/host.rs`): what the window's sheet talks to, drawing nothing.
+porter-core.workspace = true
+porter-ids.workspace = true
+porter-capability.workspace = true
+porter-sheet.workspace = true
+porter-wire.workspace = true
+porter-provider.workspace = true
+porter-client-inproc.workspace = true
+# `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
+porter-secrets.workspace = true
+# The channels the sheet's two ends speak through, and the task a browser wait runs on.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
+chrono.workspace = true
+log.workspace = true
+serde_json = "1"
+# A link read into its host (`settings::url_with_host`).
+url = "2"
+# `mailo.toml`'s edit keeps the file's keys and comments.
+toml = "1"
+
+[dev-dependencies]
+tempfile = "3"
+uuid.workspace = true
+# What a test reads a setting's meaning back through (`mail_core::notify::Opens`).
+mail-core = { workspace = true, features = ["testing"] }
+mail-domain = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

@@ -146,7 +146,7 @@ fn a_part_mailo_does_not_draw_gets_anyviews_card_and_an_svg_stays_unpreviewed() 
     settle_until(harness, |h| {
         h.attr(PEEK, "aria-label").as_deref() == Some("logo.svg")
             && h.text_of(".ds-peek .ds-empty-state-title").as_deref()
-                == Some(mail_ui::ui::copy::status::NO_PREVIEW)
+                == Some(mail_ui_model::copy::status::NO_PREVIEW)
     });
     assert_eq!(
         harness.count(".ds-peek .anyview-pane"),

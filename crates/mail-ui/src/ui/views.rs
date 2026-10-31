@@ -10,7 +10,6 @@ use super::common::{Seg, in_card};
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::page::{SORT_KEYS, sorts_by};
 use super::press::{SheetClose, on_primary};
-use crate::ui::copy;
 use crate::ui::saved::{self, ViewDraft, group_choices, group_name};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -24,6 +23,7 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::{Property, SortDir, View};
+use mail_ui_model::copy;
 
 /// Open the sheet on a new view of what `search` finds.
 pub(in crate::ui) fn open_new(mut shell: Signal<Shell>, search: &str) {

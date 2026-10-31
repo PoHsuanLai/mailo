@@ -10,9 +10,8 @@ use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_core::SqliteStore;
 use mail_core::discover::{Failed, Found, Gap, Source};
 use mail_domain::presets;
-use mail_ui::ui::native::{
-    AddAccountOpened, AddAccountSeams, AddAccountWiring, AddRequest, add_account_root,
-};
+use mail_ui::ui::native::{AddAccountOpened, AddAccountWiring, add_account_root};
+use mail_ui_model::add_account::provider::{Request, Seams};
 use porter_core::{Credential, SecretText};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -35,7 +34,7 @@ struct Log {
 /// How each seam answers.
 #[derive(Clone)]
 struct Script {
-    add: Result<String, mail_ui::ui::native::AddError>,
+    add: Result<String, mail_ui_model::add_account::provider::AddError>,
     /// A browser sign-in finishes when this is notified.
     release: Arc<Notify>,
     /// A lookup waits while a test holds this, to look at the step that is working.
@@ -59,7 +58,7 @@ impl Default for Script {
 }
 
 /// Seams that reach nothing, answering as `script` says and counting in `log`.
-fn seams(script: &Script, log: &Arc<Log>) -> AddAccountSeams {
+fn seams(script: &Script, log: &Arc<Log>) -> Seams {
     let (s, l) = (script.clone(), log.clone());
     let lookup = move |address: &str| {
         let _held = s.hold.lock().unwrap();
@@ -84,7 +83,7 @@ fn seams(script: &Script, log: &Arc<Log>) -> AddAccountSeams {
         })
     };
     let (s, l) = (script.clone(), log.clone());
-    let add = move |request: AddRequest| {
+    let add = move |request: Request| {
         l.setups
             .lock()
             .unwrap()
@@ -99,7 +98,7 @@ fn seams(script: &Script, log: &Arc<Log>) -> AddAccountSeams {
         s.add.clone()
     };
     let s = script.clone();
-    AddAccountSeams {
+    Seams {
         lookup: Arc::new(lookup),
         jmap: Arc::new(|_| Err("no jmap".to_owned())),
         client: Arc::new({
@@ -274,8 +273,8 @@ fn no_servers() -> Script {
 }
 
 /// The sheet after a password sign-in whose add fails with `fault`, the server's words `said`.
-fn add_fails(fault: mail_ui::ui::native::AddFault, said: &str) -> Window {
-    use mail_ui::ui::native::AddError;
+fn add_fails(fault: mail_ui_model::add_account::provider::AddFault, said: &str) -> Window {
+    use mail_ui_model::add_account::provider::AddError;
     let script = Script {
         add: Err(AddError {
             fault,
@@ -425,7 +424,7 @@ fn escape_cancels_and_a_failed_add_says_why_and_tries_again() {
     assert!(w.log.lookups.lock().unwrap().is_empty());
     assert!(w.log.adds.lock().unwrap().is_empty());
 
-    use mail_ui::ui::native::AddFault;
+    use mail_ui_model::add_account::provider::AddFault;
     let said = "mail.example.test did not accept the sign-in as ada@example.test: \
                 -ERR [AUTH] Authentication failed.";
     let mut w = add_fails(AddFault::Unsaved, said);

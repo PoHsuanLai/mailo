@@ -175,8 +175,8 @@ fn main() {
     {
         let config = mail_core::config::config_dir();
         let look = mail_ui::ui::view::Appearance {
-            marks: mail_ui::settings::person_root()
-                .map(|root| mail_ui::settings::load(&root))
+            marks: mail_ui_model::settings::person_root()
+                .map(|root| mail_ui_model::settings::load(&root))
                 .unwrap_or_default()
                 .window
                 .provider_marks

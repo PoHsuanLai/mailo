@@ -191,7 +191,7 @@ async fn pressing_sync_runs_one_pass_that_reports_and_ends() {
 
     click(
         &mut dom,
-        seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
+        seen.one("aria-label", mail_ui_model::copy::aria::SYNC_NOW),
     );
     settle_quiet(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 1);
@@ -214,7 +214,7 @@ async fn pressing_sync_runs_one_pass_that_reports_and_ends() {
     // A second press is the same request: nothing new starts.
     click(
         &mut dom,
-        seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
+        seen.one("aria-label", mail_ui_model::copy::aria::SYNC_NOW),
     );
     settle_quiet(&mut dom).await;
     assert_eq!(
@@ -481,7 +481,7 @@ async fn new_mail_the_window_fetched_is_announced_while_notifications_are_on() {
         if !on {
             dom.in_scope(ScopeId::APP, || {
                 crate::ui::prefs::change(|settings| {
-                    settings.notifications.new_mail = crate::settings::NewMail::Off;
+                    settings.notifications.new_mail = mail_ui_model::settings::NewMail::Off;
                 })
             })
             .unwrap();
@@ -490,7 +490,7 @@ async fn new_mail_the_window_fetched_is_announced_while_notifications_are_on() {
         }
         click(
             &mut dom,
-            seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
+            seen.one("aria-label", mail_ui_model::copy::aria::SYNC_NOW),
         );
         settle_quiet(&mut dom).await;
         let said = recorder.0.lock().unwrap().clone();

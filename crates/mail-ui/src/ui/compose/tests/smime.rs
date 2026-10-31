@@ -189,7 +189,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     // No certificate of my own.
     let after = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert!(
@@ -224,7 +224,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     .unwrap();
     let after = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert!(

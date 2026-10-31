@@ -14,7 +14,6 @@
 //! command line is the CLI's, and [`parse_args`] says so by answering `None`.
 
 use crate::handoff::ActivationToken;
-use crate::ui::copy::errors;
 use crate::ui::motion::{Follow, tell};
 use crate::ui::space::{Handle, SpaceId, Spaces};
 use crate::ui::view::Shell;
@@ -22,6 +21,7 @@ use dioxus::prelude::*;
 use mail_client::Client;
 use mail_domain::{DraftId, ThreadId};
 use mail_mime::MailtoUri;
+use mail_ui_model::copy::errors;
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -171,7 +171,7 @@ pub fn parse_args(args: &[String]) -> Option<Result<Arc<dyn Ask>, String>> {
 fn thread_arg(text: &str) -> Result<ThreadId, String> {
     text.parse()
         .map(ThreadId::from_uuid)
-        .map_err(|_| crate::ui::copy::errors::not_a_thread_id(text))
+        .map_err(|_| mail_ui_model::copy::errors::not_a_thread_id(text))
 }
 
 /// The conversation `uri` names after `prefix`, or `None`.
@@ -327,7 +327,7 @@ impl Ask for Archive {
         let client = crate::ui::live::client();
         if client.stored().thread(self.0).is_err() {
             crate::ui::motion::tell(
-                crate::ui::copy::errors::NOT_ARCHIVED.to_owned(),
+                mail_ui_model::copy::errors::NOT_ARCHIVED.to_owned(),
                 crate::ui::motion::Follow::Nothing,
             );
             return;

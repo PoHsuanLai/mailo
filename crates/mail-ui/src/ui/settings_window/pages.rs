@@ -12,7 +12,6 @@
 use super::keys::{KeyRow, value_of};
 use super::rows::link_row;
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
@@ -23,6 +22,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use ds_settings::schema::{Help, KeySpec};
+use mail_ui_model::copy;
 
 /// One row of a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +131,7 @@ pub(super) fn Page(name: &'static str, sections: &'static [Section]) -> Element 
 
 /// The schema's key at `path`, its help left to detent.
 fn key_at(path: &str) -> Option<KeySpec> {
-    crate::settings::schema()
+    mail_ui_model::settings::schema()
         .key
         .into_iter()
         .find(|key| key.path.0 == path)
@@ -143,8 +143,8 @@ fn key_at(path: &str) -> Option<KeySpec> {
 
 /// Whether `line` is drawn while images are protected as `protect` says: the relay's rows only
 /// for a relay, the proxy's only for a proxy, since a row for the way not chosen sets nothing.
-pub(super) fn drawn(line: Line, protect: crate::settings::Protect) -> bool {
-    use crate::settings::Protect;
+pub(super) fn drawn(line: Line, protect: mail_ui_model::settings::Protect) -> bool {
+    use mail_ui_model::settings::Protect;
     match line {
         Line::Key("privacy.relay_kind") | Line::Address("privacy.relay") | Line::RelayKey => {
             protect == Protect::Relay
@@ -157,10 +157,10 @@ pub(super) fn drawn(line: Line, protect: crate::settings::Protect) -> bool {
 /// Whether `line` is drawn under `settings`: the rows of the way images are protected
 /// ([`drawn`]), and the wait before a conversation is marked read only while marking it read is
 /// "After a Delay", since a wait under any other choice sets nothing.
-pub(super) fn shown(line: Line, settings: &crate::settings::MailSettings) -> bool {
+pub(super) fn shown(line: Line, settings: &mail_ui_model::settings::MailSettings) -> bool {
     match line {
         Line::Key("reading.mark_read_delay") => {
-            settings.reading.mark_read == crate::settings::MarkRead::AfterDelay
+            settings.reading.mark_read == mail_ui_model::settings::MarkRead::AfterDelay
         }
         _ => drawn(line, settings.privacy.protect),
     }
@@ -185,7 +185,7 @@ fn Groups(
     let keeps = try_consume_context::<mail_os::login_item::LoginItems>().is_some();
     let onedit = move |(path, value): (String, toml::Value)| {
         let changed = crate::ui::prefs::change_key(&path, value);
-        if changed.is_ok() && path == crate::settings::WHILE_QUIT {
+        if changed.is_ok() && path == mail_ui_model::settings::WHILE_QUIT {
             follow_login_item(login);
         }
         failed.set(changed.err());
@@ -196,7 +196,7 @@ fn Groups(
                 FormSection { key: "{at}", title: section.title.map(str::to_owned),
                     for line in section.lines.iter().copied().filter(|line| shown(*line, &settings)) {
                         match line {
-                            Line::Key(path) if path == crate::settings::WHILE_QUIT && !keeps => rsx! {},
+                            Line::Key(path) if path == mail_ui_model::settings::WHILE_QUIT && !keeps => rsx! {},
                             Line::Key(path) => match key_at(path) {
                                 Some(spec) => rsx! {
                                     KeyRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
@@ -270,7 +270,7 @@ fn follow_login_item(mut login: Signal<Option<(&'static str, String)>>) {
     let wanted = crate::ui::prefs::current().sync.while_quit;
     spawn(async move {
         let applied = tokio::task::spawn_blocking(move || {
-            apply(&*items.0, wanted == crate::settings::WhileQuit::On)
+            apply(&*items.0, wanted == mail_ui_model::settings::WhileQuit::On)
         })
         .await
         .unwrap_or_else(|e| Err(e.to_string()));
@@ -286,10 +286,10 @@ fn follow_login_item(mut login: Signal<Option<(&'static str, String)>>) {
 /// person said off, and the message says the login item may still run.
 fn said_of(
     applied: Result<Option<mail_os::login_item::Registered>, String>,
-    wanted: crate::settings::WhileQuit,
+    wanted: mail_ui_model::settings::WhileQuit,
 ) -> Option<(&'static str, String)> {
-    use crate::settings::WhileQuit;
     use mail_os::login_item::Registered;
+    use mail_ui_model::settings::WhileQuit;
     match (applied, wanted) {
         (Ok(Some(Registered::NeedsApproval)), _) => Some((
             copy::titles::ALLOW_LOGIN_ITEM,
@@ -324,8 +324,8 @@ fn AddressRow(
     let path = spec.path.0.clone();
     let mut typed = use_signal(|| value.as_str().unwrap_or_default().to_owned());
     let ours = match path.as_str() {
-        "privacy.relay" => Some(crate::settings::RouteProblem::Relay),
-        "privacy.proxy" => Some(crate::settings::RouteProblem::Proxy),
+        "privacy.relay" => Some(mail_ui_model::settings::RouteProblem::Relay),
+        "privacy.proxy" => Some(mail_ui_model::settings::RouteProblem::Proxy),
         _ => None,
     };
     // An address is wrong whatever the relay's key is, so it is judged from the settings alone: the

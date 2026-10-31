@@ -11,10 +11,9 @@ repository = "https://github.com/PoHsuanLai/mailo"
 authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 
 # The terminal front end, over `mail-core`. It words nothing of the window and draws nothing: no
-# dioxus, no ds-*, no blitz, no quire here. What it takes from `mail-ui` is the settings files and
-# the words of a finished import, the top of that crate and not its `ui` (`scripts/check-boundary.sh`);
-# they leave `mail-ui` when the settings do. It does not name `mail-intents` either: `mailo intents`
-# is dispatched by `mail-app`.
+# dioxus, no ds-*, no blitz, no quire here, and no `mail-ui` (`scripts/check-boundary.sh`). What it
+# shares with the window is `mail-ui-model`'s settings files and `mail-os`'s seams. It does not name
+# `mail-intents` either: `mailo intents` is dispatched by `mail-app`.
 
 [dependencies]
 mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
@@ -23,7 +22,7 @@ mail-store.workspace = true
 mail-client.workspace = true
 mail-edge.workspace = true
 mail-os.workspace = true
-mail-ui.workspace = true
+mail-ui-model.workspace = true
 mail-mime.workspace = true
 mail-reader.workspace = true
 # OpenPGP and S/MIME, and the mbox and Maildir the import and export read and write.

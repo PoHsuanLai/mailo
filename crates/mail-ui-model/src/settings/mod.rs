@@ -28,7 +28,7 @@ pub use words::{
     Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
 };
 
-use ds::prelude::Word;
+use ds_core::word::Word;
 use ds_settings::schema::{AppId, FilePath, KeySpec, Page, Schema, SettingsSchema, WordLabels};
 use ds_settings::{AppName, FileName, Format, SettingsDoc, Store};
 // The root every settings call takes, named here for the callers (`mail-cli`) that hold one and

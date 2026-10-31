@@ -17,8 +17,8 @@
 //! the system's keymap (`AppConfig::with_keymap_overrides`), so they are read once, as mailo
 //! opens.
 
-use crate::ui::copy;
 use crate::ui::view::Shortcut;
+use mail_ui_model::copy;
 use std::path::Path;
 
 /// Where the user's keys are kept, in the config directory.
@@ -173,7 +173,7 @@ impl std::fmt::Display for Refused {
             Refused::Chord => f.write_str("Ctrl, Alt and Super shortcuts are reserved."),
             Refused::Fixed(action) => write!(f, "{} is always Esc.", name(*action)),
             Refused::Twice(action) => {
-                f.write_str(&crate::ui::copy::errors::key_given_twice(name(*action)))
+                f.write_str(&mail_ui_model::copy::errors::key_given_twice(name(*action)))
             }
         }
     }

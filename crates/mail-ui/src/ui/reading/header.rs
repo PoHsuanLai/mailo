@@ -150,7 +150,7 @@ fn FullHead(
     };
     let forged = trust
         .forged()
-        .then(|| crate::ui::copy::errors::may_not_be_from(&named(&message).0));
+        .then(|| mail_ui_model::copy::errors::may_not_be_from(&named(&message).0));
     rsx! {
         {full_head(&message, date, &yours, Some(avatar), Some(trust))}
         if let Some(said) = forged {
@@ -223,7 +223,7 @@ fn full_head(
     let mark = trust.and_then(|trust| trust.mark.map(|mark| (mark, trust.lines)));
     rsx! {
         header { class: "msg-head reader-meta", "data-detail": "full", "data-standing": standing,
-            Line { label: crate::ui::copy::fields::FROM, row: "from",
+            Line { label: mail_ui_model::copy::fields::FROM, row: "from",
                 {avatar}
                 if addr.is_empty() {
                     super::super::contacts::SenderName { shown: name, in_mail: given, address: email }

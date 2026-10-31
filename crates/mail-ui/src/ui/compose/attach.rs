@@ -19,9 +19,9 @@ use mail_client::prelude::CoreError;
 
 use super::life;
 use super::page::{Guard, Page};
-use crate::settings::MessageFormat;
 use crate::ui::press::on_primary;
 use mail_client::compose::ATTACHMENT_BUDGET;
+use mail_ui_model::settings::MessageFormat;
 
 /// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
 /// draft and in the strip at the body's end. `bezel` is the bar's it stands in: the composer's
@@ -90,7 +90,7 @@ pub(super) fn use_drop_target(page: Signal<Page>) -> FileDropHandle {
 /// The picture on the clipboard, `png`, shown in the body at the caret: a paste the surface
 /// brought nothing for (`crate::ui::pasted_image`).
 pub(super) fn paste_image(mut page: Signal<Page>, png: Vec<u8>) {
-    let name = crate::ui::copy::fields::PASTED_IMAGE;
+    let name = mail_ui_model::copy::fields::PASTED_IMAGE;
     let lands = shown_in(page.peek().format, Lands::Body);
     let placed = match lands {
         Lands::Body => into_body(page, name, &png),
@@ -271,9 +271,9 @@ fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), Bod
 #[cfg(test)]
 mod tests {
     use super::{BodyRefused, Lands, Picked, read_picked, shown_in};
-    use crate::settings::MessageFormat;
     use mail_client::compose::ATTACHMENT_BUDGET;
     use mail_client::prelude::CoreError;
+    use mail_ui_model::settings::MessageFormat;
 
     /// A picture the body cannot take is attached; every other refusal is said.
     #[test]

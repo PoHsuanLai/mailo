@@ -378,8 +378,8 @@ fn save_to_asks_for_a_folder_and_save_follows_the_setting() {
         chrono::Utc::now(),
         with_three_parts,
         move |dir, contexts| {
-            let settings = mail_ui::settings::root_for(&dir.join("config"));
-            mail_ui::settings::change(&settings, |settings| {
+            let settings = mail_ui_model::settings::root_for(&dir.join("config"));
+            mail_ui_model::settings::change(&settings, |settings| {
                 settings.attachments.downloads_folder = set.display().to_string();
             })
             .expect("the setting is written");
@@ -419,7 +419,7 @@ fn save_to_asks_for_a_folder_and_save_follows_the_setting() {
 fn more_menu(window: &mut Window, name: &str) {
     window.click(&format!(
         ".reader-head button[*|aria-label=\"{}\"]",
-        mail_ui::ui::copy::aria::MORE
+        mail_ui_model::copy::aria::MORE
     ));
     window.menu_item(name);
 }
@@ -435,7 +435,7 @@ fn the_more_menu_saves_the_files_into_a_folder_chosen() {
     window.until("the reader shows the three tiles", |h| {
         h.count(".reader .att-tile") == 3
     });
-    more_menu(&mut window, mail_ui::ui::copy::menus::SAVE_ATTACHMENTS);
+    more_menu(&mut window, mail_ui_model::copy::menus::SAVE_ATTACHMENTS);
     let written = |name: &str| chosen.path().join(name);
     window.until("every part is written into the folder", |_| {
         written("minutes.txt").exists()
@@ -459,7 +459,7 @@ fn the_more_menu_names_a_single_file_and_saves_it() {
     single.until("the reader shows the tile", |h| {
         h.count(".reader .att-tile") == 1
     });
-    more_menu(&mut single, mail_ui::ui::copy::menus::SAVE_ATTACHMENT);
+    more_menu(&mut single, mail_ui_model::copy::menus::SAVE_ATTACHMENT);
     single.until("the file is written into the folder", |_| {
         chosen.path().join(NAME).exists()
     });

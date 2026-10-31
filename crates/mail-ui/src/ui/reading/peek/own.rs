@@ -7,9 +7,9 @@
 //! content, follows a reference in it or fetches anything; a forwarded message shows its plain
 //! text only, so its HTML (and every image or link in it) is never drawn.
 
-use crate::ui::copy;
 use mail_client::when::Clock;
 use mail_domain::{Address, MessageId};
+use mail_ui_model::copy;
 
 /// What Peek draws for a part mailo reads itself.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -446,7 +446,7 @@ fn alignment_nesting_quote_levels_size_and_colour_go_out_in_the_html() {
     });
     window.click(&format!(
         ".bubble [*|aria-label=\"{}\"]",
-        mail_ui::ui::copy::aria::TEXT_COLOUR
+        mail_ui_model::copy::aria::TEXT_COLOUR
     ));
     window.until("the swatches are in the bar's place", |h| {
         h.count(".bubble .ds-radio-group-item") == 7

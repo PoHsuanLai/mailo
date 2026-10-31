@@ -17,7 +17,6 @@
 //! runs from a task, once the document is free ([`free`]), and is one step with no await inside
 //! it. A find started while an older one still waits supersedes it (`Inner::pass`).
 
-use crate::ui::copy;
 use crate::ui::host::Host;
 use crate::ui::view::{Finding, Shell};
 use blitz_dom::{Attribute, BaseDocument, LocalName, Namespace, NodeId, QualName, ScrollBehavior};
@@ -32,6 +31,7 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::search::{Found, MOST_FOUND, Step, find_in};
 use mail_domain::MessageId;
 use mail_reader::{FOUND_CURRENT, FOUND_MARK};
+use mail_ui_model::copy;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;

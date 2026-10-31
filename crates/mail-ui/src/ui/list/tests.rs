@@ -272,7 +272,7 @@ async fn the_unread_filter_key_waits_for_an_open_menu() {
     let page = until(&mut dom, |page| page.contains("ds-list-item")).await;
     assert!(!page.contains(FILTER_ROW), "the row before any key");
 
-    let more = seen.one("aria-label", crate::ui::copy::aria::MORE);
+    let more = seen.one("aria-label", mail_ui_model::copy::aria::MORE);
     click(&mut dom, more);
     let _ = drain_seen(&mut dom);
     crate::ui::fixtures::chord(&mut dom, "u", PRIMARY | Modifiers::ALT, shell);

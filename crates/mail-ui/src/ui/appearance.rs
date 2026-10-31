@@ -11,7 +11,7 @@
 //! and writes none. Three older files are still read from mailo's own directory:
 //!
 //! - `mailo.toml` held mailo's own choice of provider marks. That is a key of
-//!   `mailo/settings.toml` now (`crate::settings`), which read it once; nothing writes it.
+//!   `mailo/settings.toml` now (`mail_ui_model::settings`), which read it once; nothing writes it.
 //! - `appearance.toml` is what mailo kept for quire between v0.2.0 and the desktop's own store.
 //!   [`adopt`] copies it into the desktop's directory once, when the desktop has none, and never
 //!   writes or deletes it, so going back to an older build loses nothing.

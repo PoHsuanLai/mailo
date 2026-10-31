@@ -18,8 +18,8 @@ use super::super::menus::when_words;
 use super::away::AwayPage;
 use super::server::reach_away;
 use super::{Said, push_away};
-use crate::ui::copy;
 use crate::ui::view::{Shell, VacationAt};
+use mail_ui_model::copy;
 
 /// The stack's element id: its back buttons are `vacation-pane-back-root` and `-detail`.
 const STACK: &str = "vacation-pane";

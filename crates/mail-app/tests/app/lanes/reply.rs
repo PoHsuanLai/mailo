@@ -16,9 +16,12 @@ fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyon
         chrono::Utc::now(),
         |_| {},
         |dir, contexts| {
-            mail_ui::settings::change(&mail_ui::settings::root_for(&dir.join("config")), |s| {
-                s.compose.reply_same_format = mail_ui::settings::ReplySameFormat::Off;
-            })
+            mail_ui_model::settings::change(
+                &mail_ui_model::settings::root_for(&dir.join("config")),
+                |s| {
+                    s.compose.reply_same_format = mail_ui_model::settings::ReplySameFormat::Off;
+                },
+            )
             .expect("the setting is written");
             contexts
         },

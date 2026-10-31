@@ -10,10 +10,10 @@ use mail_core::{SqliteStore, Store};
 
 use super::editor::{SenderName, starting_name};
 use super::tests::{ADDED, HEARD, the_book};
-use crate::ui::copy;
 use crate::ui::fixtures::{
     Seen, click, dispatching, drain_seen, pick_named, rebuild_into, right_click, type_into,
 };
+use mail_ui_model::copy;
 
 #[test]
 fn the_field_starts_with_the_books_name_else_the_one_the_mail_gave() {

@@ -37,10 +37,10 @@ use super::receipt::ReceiptRow;
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use super::remind::RemindRow;
 use crate::ui::actions::{self, Own};
-use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::view::Shell;
 use mail_client::provider::{provider, service_name};
+use mail_ui_model::copy;
 
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {

@@ -211,7 +211,7 @@ pub(in crate::ui) async fn drawn_states() -> String {
 fn syncs(page: &str) -> bool {
     page.contains(&format!(
         "aria-label=\"{}\"",
-        crate::ui::copy::aria::SYNC_NOW
+        mail_ui_model::copy::aria::SYNC_NOW
     ))
 }
 

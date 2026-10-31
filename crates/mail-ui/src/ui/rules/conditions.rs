@@ -17,7 +17,7 @@ use super::super::common::classed;
 use super::super::press::{available, on_primary};
 use super::when::{self, Condition, Field, Joined, STATES, Test};
 use super::work;
-use crate::ui::copy;
+use mail_ui_model::copy;
 
 /// How the condition is being written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

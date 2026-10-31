@@ -11,7 +11,6 @@
 //! not interrupted by it.
 
 use crate::ui::appearance::WindowDirs;
-use crate::ui::copy;
 use crate::ui::press::on_primary;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -21,6 +20,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_os::mail_handler::{Handler, Made, MailHandlers};
+use mail_ui_model::copy;
 use std::path::Path;
 
 /// Settings' Make Default button.

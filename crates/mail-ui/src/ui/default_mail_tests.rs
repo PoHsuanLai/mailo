@@ -3,13 +3,13 @@
 
 use super::{Asked, DefaultMailQuestion, DefaultMailRow, load, name_of, save};
 use crate::ui::appearance::WindowDirs;
-use crate::ui::copy;
 use crate::ui::fixtures::{acct_account, click, dispatching, drain_seen, rebuild_into};
 use crate::ui::view::Shell;
 use dioxus::dioxus_core::VirtualDom;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_os::mail_handler::{Done, Handler, Made, MailHandler, MailHandlers};
+use mail_ui_model::copy;
 use std::sync::{Arc, Mutex};
 
 /// A handler that answers `current` from memory, and on a request records it and makes mailo

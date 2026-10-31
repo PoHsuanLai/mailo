@@ -333,7 +333,7 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_peek() {
         "Peek's picture is no larger than the thumbnail: {:?}",
         drawn.size
     );
-    head_button(harness, mail_ui::ui::copy::controls::SAVE);
+    head_button(harness, mail_ui_model::copy::controls::SAVE);
     assert_eq!(harness.count(PAGE), 0, "a picture was given pages");
 
     harness.key(Key::Escape);
@@ -406,12 +406,12 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_peek() {
         h.text_of(PAGE).as_deref() == Some("Page 1 of 2")
             && h.attr(PICTURE, "src").as_deref() == Some(first.as_str())
     });
-    let next = head_button(harness, mail_ui::ui::copy::aria::NEXT_PAGE);
+    let next = head_button(harness, mail_ui_model::copy::aria::NEXT_PAGE);
     click(harness, &next);
     settle_until(harness, |h| {
         h.text_of(PAGE).as_deref() == Some("Page 2 of 2")
     });
-    head_button(harness, mail_ui::ui::copy::controls::SAVE);
+    head_button(harness, mail_ui_model::copy::controls::SAVE);
 
     harness.key(Key::Escape);
     settle_until(harness, |h| h.count(PEEK) == 0);

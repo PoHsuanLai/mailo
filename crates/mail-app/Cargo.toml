@@ -105,6 +105,8 @@ mail-intents.workspace = true
 mail-client.workspace = true
 # The window, over the client.
 mail-ui.workspace = true
+# The settings files the window and the command line read.
+mail-ui-model.workspace = true
 # The launcher's count and the words the command line prints, which the window shares.
 mail-os.workspace = true
 # The platform keyring holds the account secrets and the signing keys: the library keeps it opt-in.

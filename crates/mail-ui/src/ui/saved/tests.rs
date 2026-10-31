@@ -230,7 +230,7 @@ fn a_sort_that_was_not_kept_is_put_back() {
 #[test]
 fn a_sort_not_kept_says_why() {
     assert_eq!(
-        crate::ui::copy::status::sort_not_kept("disk full."),
+        mail_ui_model::copy::status::sort_not_kept("disk full."),
         "The order was not kept: disk full."
     );
 }

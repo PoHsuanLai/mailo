@@ -11,7 +11,6 @@
 //! shows nothing — fetching it to find out would be a POP3 `RETR`, which marks it read. What its
 //! OpenPGP or S/MIME says is the seal's to find; this reads what the seal kept.
 
-use crate::ui::copy;
 use crate::ui::menu::anchor_at;
 use crate::ui::pgp::{Look, Mark, Said, Tone};
 use dioxus::prelude::*;
@@ -26,6 +25,7 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::auth::{Standing, standing};
 use mail_domain::{BlobId, MessageId};
 use mail_mime::AuthResults;
+use mail_ui_model::copy;
 
 /// What the head says about a message's sender, worked out from what is known so far.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

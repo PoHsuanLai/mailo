@@ -13,8 +13,8 @@ use ds_blitz::FocusFallback;
 use ds_harness::{Clock, Harness, HarnessConfig};
 use mail_core::{Arrival, SqliteStore, absorb};
 use mail_domain::*;
-use mail_ui::ui::copy;
 use mail_ui::ui::native::{Browse, Fetch, Original};
+use mail_ui_model::copy;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 

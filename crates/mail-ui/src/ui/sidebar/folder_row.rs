@@ -9,7 +9,6 @@ use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use super::lit::{Landing, Under, lit};
 use super::tagged;
-use crate::ui::copy;
 use crate::ui::view::{Source, folder_of};
 use dioxus::prelude::*;
 use ds::base::press::Press;
@@ -21,6 +20,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_client::folder::Refusal;
 use mail_domain::{Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription};
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// One folder and, beneath it, what it holds: quire's `Row`, a branch while it has children or

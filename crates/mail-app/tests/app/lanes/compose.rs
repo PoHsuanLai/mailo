@@ -11,7 +11,7 @@ use ds::file_drop::drag::{DropAcceptance, FileDragInput, Offer};
 use ds_harness::Harness;
 use mail_core::Store;
 use mail_domain::SendState;
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 use std::path::PathBuf;
 
 use super::drive::{Drive, Key, PRIMARY};

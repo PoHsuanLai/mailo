@@ -10,12 +10,12 @@ use super::motion::act_kind;
 use super::ops::{Composes, Writes, open_composer};
 use super::reading::Raw;
 use super::view::{Shell, Shortcut};
-use crate::settings::ZoomStep;
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use mail_client::Client;
 use mail_client::search::Step;
 use mail_domain::*;
+use mail_ui_model::settings::ZoomStep;
 
 /// Where the key landed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

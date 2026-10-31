@@ -4,8 +4,8 @@
 //! A Space that shows every account there is has nothing to bring in, and its "+" goes straight
 //! to adding a new one.
 
-use crate::ui::copy;
 use crate::ui::menu::{MenuItem, Tile};
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// The menu's key for Add Account….
@@ -117,7 +117,7 @@ mod tests {
             [
                 "a2@example.test",
                 "a3@example.test",
-                crate::ui::copy::menus::ADD_ACCOUNT
+                mail_ui_model::copy::menus::ADD_ACCOUNT
             ]
         );
         assert_eq!(picked(&rows[1].key, &outside), Some(account(3).0));

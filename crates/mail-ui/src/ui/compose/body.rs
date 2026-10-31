@@ -25,9 +25,9 @@ use super::page::{Float, Page};
 use super::styling;
 use super::templates::{self, TemplateFloat, page_slash_items};
 use crate::ui::actions::{Heard, Own};
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_editor::{InputEvent, Mark, Nest, Node, Op, Presence, Range};
+use mail_ui_model::copy;
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -59,7 +59,7 @@ pub(in crate::ui) fn Body(
     let float = read.float.clone();
     // Plain text carries no formatting, so there is none to offer.
     let bar = read.selection.is_some()
-        && read.format == crate::settings::MessageFormat::Rich
+        && read.format == mail_ui_model::settings::MessageFormat::Rich
         && (focus() == EditFocus::In || matches!(read.float, Float::Link(_) | Float::Colour));
     drop(read);
     let editable =

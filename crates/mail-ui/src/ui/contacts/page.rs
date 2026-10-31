@@ -32,11 +32,11 @@ use mail_client::contacts::{CardId, GroupHome, GroupId, PersonCard};
 use mail_pim::Postal;
 
 use super::book;
-use crate::ui::copy;
 use crate::ui::motion::{Follow, tell};
 use crate::ui::pick::{Ask, choose, file_name};
 use crate::ui::press::on_primary;
 use crate::ui::view::{ContactsPage, Shell};
+use mail_ui_model::copy;
 
 /// The stack's element id: its back buttons are `contacts-pane-back-root` and `-detail`.
 const STACK: &str = "contacts-pane";

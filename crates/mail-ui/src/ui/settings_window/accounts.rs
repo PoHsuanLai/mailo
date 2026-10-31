@@ -16,7 +16,6 @@ use super::account::{AccountPage, back};
 use super::rows::link_row;
 use crate::ui::add_account::Join;
 use crate::ui::common::{add_mark, tile};
-use crate::ui::copy;
 use crate::ui::provider_chip;
 use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
@@ -26,6 +25,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// The key of the Add Account… row, which no account id can be.

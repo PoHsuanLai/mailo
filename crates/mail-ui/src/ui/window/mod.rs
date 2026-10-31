@@ -107,7 +107,9 @@ fn quire(ask: Ask) {
         Err(why) => {
             log::warn!("a conversation's window would not open: {why}");
             super::motion::tell(
-                super::copy::toasts::would_not_open(super::copy::toasts::A_NEW_WINDOW),
+                mail_ui_model::copy::toasts::would_not_open(
+                    mail_ui_model::copy::toasts::A_NEW_WINDOW,
+                ),
                 super::motion::Follow::Nothing,
             );
         }

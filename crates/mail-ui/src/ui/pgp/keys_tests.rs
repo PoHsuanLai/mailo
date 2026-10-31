@@ -233,17 +233,17 @@ async fn a_keys_acts_are_one_menu_under_its_more_button_or_a_right_click() {
     let _ = later(&mut dom).await;
     let own = menu_titles(&dom);
     assert!(
-        own.contains(&crate::ui::copy::menus::EXPORT_SECRET_KEY.to_owned()),
+        own.contains(&mail_ui_model::copy::menus::EXPORT_SECRET_KEY.to_owned()),
         "{own:?}"
     );
     assert_eq!(
         own.first().map(String::as_str),
-        Some(crate::ui::copy::menus::COPY_PUBLIC_KEY),
+        Some(mail_ui_model::copy::menus::COPY_PUBLIC_KEY),
         "{own:?}"
     );
     assert_eq!(
         own.last().map(String::as_str),
-        Some(crate::ui::copy::menus::DELETE),
+        Some(mail_ui_model::copy::menus::DELETE),
         "{own:?}"
     );
 
@@ -253,11 +253,11 @@ async fn a_keys_acts_are_one_menu_under_its_more_button_or_a_right_click() {
     let _ = later(&mut dom).await;
     let other = menu_titles(&dom);
     assert!(
-        !other.contains(&crate::ui::copy::menus::EXPORT_SECRET_KEY.to_owned()),
+        !other.contains(&mail_ui_model::copy::menus::EXPORT_SECRET_KEY.to_owned()),
         "{other:?}"
     );
     assert!(
-        other.contains(&crate::ui::copy::menus::MARK_VERIFIED.to_owned()),
+        other.contains(&mail_ui_model::copy::menus::MARK_VERIFIED.to_owned()),
         "{other:?}"
     );
 }
@@ -268,7 +268,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = short(mine.fingerprint);
 
-    let mut asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
+    let mut asked = pick(&mut dom, &seen, &id, mail_ui_model::copy::menus::DELETE).await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("can’t be undone"), "{page}");
     assert!(
@@ -283,7 +283,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     assert!(!dioxus_ssr::render(&dom).contains("can’t be undone"));
     assert!(held(&secrets, &mine));
 
-    asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
+    asked = pick(&mut dom, &seen, &id, mail_ui_model::copy::menus::DELETE).await;
     let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(mine.fingerprint).unwrap().is_none());
@@ -304,7 +304,7 @@ async fn a_key_without_a_secret_is_deleted_at_once() {
         &mut dom,
         &seen,
         &short(theirs.fingerprint),
-        crate::ui::copy::menus::DELETE,
+        mail_ui_model::copy::menus::DELETE,
     )
     .await;
     settle(&mut dom, &mut done).await;
@@ -337,7 +337,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
         &mut dom,
         &seen,
         &id,
-        crate::ui::copy::menus::EXPORT_SECRET_KEY,
+        mail_ui_model::copy::menus::EXPORT_SECRET_KEY,
     )
     .await;
     let page = dioxus_ssr::render(&dom);
@@ -396,7 +396,7 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
         &mut dom,
         &all,
         &short(theirs.fingerprint),
-        crate::ui::copy::menus::MARK_VERIFIED,
+        mail_ui_model::copy::menus::MARK_VERIFIED,
     )
     .await;
     settle(&mut dom, &mut verified).await;
@@ -414,7 +414,7 @@ pub(in crate::ui) async fn drawn_states() -> String {
         &mut dom,
         &seen,
         &short(mine.fingerprint),
-        crate::ui::copy::menus::DELETE,
+        mail_ui_model::copy::menus::DELETE,
     )
     .await;
     let page = dioxus_ssr::render(&dom);

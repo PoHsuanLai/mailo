@@ -20,7 +20,6 @@ mod thumb;
 mod tools;
 mod words;
 
-use super::copy;
 use super::press::on_primary;
 use super::text::{attachment_rows, stamp};
 use crate::ui::view::Shell;
@@ -40,6 +39,7 @@ use mail_client::message::{INLINE_BYTES, Sent};
 use mail_client::query::{Conversation, Messages};
 use mail_domain::*;
 use mail_reader::FrameBody;
+use mail_ui_model::copy;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
 pub(in crate::ui) use source::{Raw, RawAsked, RawSheet, ask as ask_raw, close as close_raw};
@@ -98,9 +98,10 @@ const ZOOM_SETTLES: std::time::Duration = std::time::Duration::from_millis(300);
 /// Bigger, Smaller or Actual Size: the reader's text size a step along, drawn at once in this
 /// window, and written to the settings once the presses stop (the other windows and the next
 /// launch then draw messages at it).
-pub(in crate::ui) fn zoom(step: crate::settings::ZoomStep) {
+pub(in crate::ui) fn zoom(step: mail_ui_model::settings::ZoomStep) {
     static PRESSES: crate::ui::prefs::Latest = crate::ui::prefs::Latest::new();
-    let Some(mut shown) = try_consume_context::<Signal<crate::settings::MailSettings>>() else {
+    let Some(mut shown) = try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>()
+    else {
         log::warn!("text size: the window has no settings to change");
         return;
     };
@@ -247,7 +248,7 @@ pub(super) fn Reader(
     // The window's settings, for whose images load without asking. Not `prefs::use_settings`: a
     // reader drawn with no window around it (a test's) asks about every image rather than read
     // the person's own `settings.toml`, which is the safe way for a stray reader to be wrong.
-    let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
+    let settings = use_hook(try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>);
     // The link a right click in a message's frame was on, which the window's frames report
     // (`original::FrameMenus`); a reader with no window around it has none. And the Copy Link
     // menu it opens.
@@ -369,7 +370,7 @@ pub(super) fn Reader(
     frames.prefer(reading.prefer_plain_text.into());
     // "Load remote images: Never": nothing remote loads, by press or by setting, and nothing
     // offers to load it.
-    let block_all = reading.remote_images == crate::settings::LoadRemoteImages::Never;
+    let block_all = reading.remote_images == mail_ui_model::settings::LoadRemoteImages::Never;
     // Images that cannot be fetched the way Privacy says are not fetched another way: the line
     // over the message says so, where it would offer Load Images.
     let route_problem = crate::ui::prefs::route_problem();
@@ -560,7 +561,7 @@ pub(super) fn Reader(
     // Until the sender's checks are known it is not offered; it appears when they land.
     let offer = blocked.as_ref().and_then(|message| {
         let worth = route_problem.is_none()
-            && reading.remote_images != crate::settings::LoadRemoteImages::Always
+            && reading.remote_images != mail_ui_model::settings::LoadRemoteImages::Always
             && message.mailbox != MailboxRole::Spam
             && !message.from.email.trim().is_empty();
         if !worth {
@@ -633,7 +634,7 @@ pub(super) fn Reader(
             h2 {
                 if loaded.summary.star == Star::Starred {
                     span { class: "flag-mark", "data-flag": loaded.summary.flag.as_str(),
-                        role: "img", aria_label: super::copy::aria::flagged(loaded.summary.flag),
+                        role: "img", aria_label: mail_ui_model::copy::aria::flagged(loaded.summary.flag),
                         ds::style::icon::render::Glyph { icon: Icon::Star, size: IconSize::Compact }
                     }
                 }
@@ -819,11 +820,11 @@ fn use_frame_images(
 fn ImagesHidden(
     shell: Signal<Shell>,
     offer: Option<String>,
-    problem: Option<crate::settings::RouteProblem>,
+    problem: Option<mail_ui_model::settings::RouteProblem>,
 ) -> Element {
-    use super::copy::{controls, status};
     use ds::components::controls::button_model::Bezel;
     use ds::root::common::Common;
+    use mail_ui_model::copy::{controls, status};
     if let Some(problem) = problem {
         return rsx! {
             p { class: "images-hidden", role: "status",
@@ -989,13 +990,13 @@ fn message_items(
     let rows: Vec<MenuItem> = [
         (
             SHOW_HEADERS,
-            super::copy::menus::SHOW_ALL_HEADERS,
+            mail_ui_model::copy::menus::SHOW_ALL_HEADERS,
             Icon::ListTree,
             Own::ShowHeaders,
         ),
         (
             VIEW_SOURCE,
-            super::copy::menus::VIEW_SOURCE,
+            mail_ui_model::copy::menus::VIEW_SOURCE,
             Icon::FileCode,
             Own::ViewSource,
         ),
@@ -1006,7 +1007,7 @@ fn message_items(
         ..MenuItem::icon(key, icon, name)
     })
     .collect();
-    let copy = copy.then(|| MenuItem::icon(COPY, Icon::Copy, super::copy::menus::COPY));
+    let copy = copy.then(|| MenuItem::icon(COPY, Icon::Copy, mail_ui_model::copy::menus::COPY));
     let receipt = receipt.then(super::receipt::items).unwrap_or_default();
     copy.into_iter().chain(rows).chain(receipt).collect()
 }
@@ -1018,9 +1019,13 @@ const COPY_LINK: &str = "copy-link";
 /// The link menu's rows, in the Mac's order.
 fn link_items() -> Vec<super::menu::MenuItem> {
     [
-        (OPEN_LINK, super::copy::menus::OPEN_LINK, Icon::Link),
-        (PREVIEW_LINK, super::copy::menus::PREVIEW_LINK, Icon::Globe),
-        (COPY_LINK, super::copy::menus::COPY_LINK, Icon::Copy),
+        (OPEN_LINK, mail_ui_model::copy::menus::OPEN_LINK, Icon::Link),
+        (
+            PREVIEW_LINK,
+            mail_ui_model::copy::menus::PREVIEW_LINK,
+            Icon::Globe,
+        ),
+        (COPY_LINK, mail_ui_model::copy::menus::COPY_LINK, Icon::Copy),
     ]
     .into_iter()
     .map(|(key, name, icon)| super::menu::MenuItem::icon(key, icon, name))

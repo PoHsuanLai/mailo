@@ -88,7 +88,7 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
     let open = use_memo(move || shell.read().open);
     // Warmed as the reader will look them up: with the body the settings prefer, and again when
     // that changes.
-    let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
+    let settings = use_hook(try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>);
     use_effect(move || {
         if let Some(settings) = settings {
             frames.prefer(settings.read().reading.prefer_plain_text.into());

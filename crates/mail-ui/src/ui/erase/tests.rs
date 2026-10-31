@@ -1,7 +1,6 @@
 //! The window erases what Delete moved under "deletes now", and nothing under the defaults.
 
 use super::use_eraser;
-use crate::settings::{DeleteMeans, MailSettings};
 use crate::ui::fixtures::{
     acct_account, dispatching, inbox_query, realistic, rebuild_into, settle_for,
 };
@@ -10,6 +9,7 @@ use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_core::Store;
 use mail_domain::*;
+use mail_ui_model::settings::{DeleteMeans, MailSettings};
 use std::time::Duration;
 
 #[component]

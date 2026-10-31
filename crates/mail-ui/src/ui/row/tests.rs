@@ -3,7 +3,6 @@
 //! further menu open it.
 
 use crate::ui::app::App;
-use crate::ui::copy::menus;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, chord, click, dispatching, listed_subjects, menu_names, open_row_menu,
     rebuild_into, row_action, settle, work,
@@ -13,6 +12,7 @@ use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui_model::copy::menus;
 use std::sync::Arc;
 
 struct Window {
@@ -143,7 +143,7 @@ async fn the_readers_move_menu_holds_the_keys_and_opens_once() {
     let opened = click(&mut dom, crate::ui::fixtures::row_named(&seen, &subject));
     let opened = settle(&mut dom, opened);
     let more = *opened
-        .all("aria-label", crate::ui::copy::aria::MORE)
+        .all("aria-label", mail_ui_model::copy::aria::MORE)
         .last()
         .unwrap_or_else(|| panic!("the reader has no ⋯"));
     let pressed = click(&mut dom, more);
@@ -197,9 +197,9 @@ async fn snooze_from_the_menu_opens_the_snooze_menu() {
 
 #[test]
 fn only_the_primary_button_opens_or_picks_a_row() {
-    use crate::ui::selection::Click;
     use chordkit::{Desktop, Platform};
     use ds::base::press::{PointerButton, Press};
+    use mail_ui_model::selection::Click;
     let ours = Platform::Linux {
         desktop: Desktop::Ours,
     };

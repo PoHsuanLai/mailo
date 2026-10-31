@@ -16,7 +16,6 @@ use super::row::listed::Listed;
 use super::row::{AccountMark, ListRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
-use crate::ui::copy;
 use crate::ui::fetching::{Fetching, HasRows, ListFace, Need, list_face};
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::{Nothing, Shell};
@@ -32,6 +31,7 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_client::fetch::Link;
 use mail_client::provider::provider;
 use mail_domain::*;
+use mail_ui_model::copy;
 use porter_core::AccountId;
 use std::collections::BTreeMap;
 

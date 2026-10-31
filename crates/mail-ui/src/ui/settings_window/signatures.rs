@@ -11,7 +11,6 @@
 //! next one is signed with what was kept here.
 
 use crate::ui::compose::{Body, Page};
-use crate::ui::copy;
 use crate::ui::motion::{Follow, Restore, tell};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -25,6 +24,7 @@ use mail_client::Logged;
 use mail_client::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
 use mail_editor::{Doc, Node, ParaKind, Session};
+use mail_ui_model::copy;
 
 /// The stack's element id: its back button is `signatures-pane-back-detail`.
 const STACK: &str = "signatures-pane";

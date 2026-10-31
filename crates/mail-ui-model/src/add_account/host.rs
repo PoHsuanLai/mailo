@@ -24,7 +24,7 @@ use super::provider::{Added, Seams, offered};
 
 /// What the window is to draw.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(super) enum Shown {
+pub enum Shown {
     /// The service has not opened the sheet yet.
     #[default]
     Nothing,
@@ -37,20 +37,20 @@ pub(super) enum Shown {
 
 /// The window's end: the views to draw and where its answers go.
 #[derive(Debug, Clone)]
-pub(super) struct WindowEnd {
+pub struct WindowEnd {
     pub views: watch::Receiver<Shown>,
     pub inputs: mpsc::UnboundedSender<SheetInput>,
 }
 
 /// The service's end, as `porter_sheet::host::Sheets`.
 #[derive(Debug)]
-pub(super) struct WindowSheets {
+pub struct WindowSheets {
     views: Arc<watch::Sender<Shown>>,
     inputs: Mutex<Option<mpsc::UnboundedReceiver<SheetInput>>>,
 }
 
 /// The two ends of one conversation.
-pub(super) fn ends() -> (WindowEnd, WindowSheets) {
+pub fn ends() -> (WindowEnd, WindowSheets) {
     let (views, seen) = watch::channel(Shown::Nothing);
     let (answers, inputs) = mpsc::unbounded_channel();
     (
@@ -67,7 +67,7 @@ pub(super) fn ends() -> (WindowEnd, WindowSheets) {
 
 /// An open conversation: what is shown, and what the person did.
 #[derive(Debug)]
-pub(super) struct WindowLink {
+pub struct WindowLink {
     views: Arc<watch::Sender<Shown>>,
     inputs: mpsc::UnboundedReceiver<SheetInput>,
 }
@@ -117,7 +117,7 @@ impl Sheets for WindowSheets {
 /// The account service has no secrets of its own to keep: the provider files nothing with it
 /// (mailo keeps its accounts' secrets itself, `mail_client::prelude::AccountSecrets`).
 #[derive(Debug, Clone, Copy)]
-pub(super) struct NoSecrets;
+pub struct NoSecrets;
 
 impl Secrets for NoSecrets {
     async fn put(
@@ -155,7 +155,7 @@ fn caller() -> AppId {
 
 /// How an add ended, as the window needs to know it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Ended {
+pub enum Ended {
     /// An account was added.
     Added,
     /// The person closed the sheet, or it ended without one.
@@ -164,7 +164,7 @@ pub(super) enum Ended {
 
 /// Run the add-account conversation to its end: the service over `providers`, the sheet through
 /// `sheets`. Resolves when the sheet closes.
-pub(super) async fn run<P: Provider + 'static>(providers: Vec<P>, sheets: WindowSheets) -> Ended {
+pub async fn run<P: Provider + 'static>(providers: Vec<P>, sheets: WindowSheets) -> Ended {
     let porter = hosted(HostConfig::new(caller(), providers, NoSecrets, sheets));
     match porter
         .accounts()
@@ -178,7 +178,7 @@ pub(super) async fn run<P: Provider + 'static>(providers: Vec<P>, sheets: Window
 
 /// [`run`] for mail: the providers mailo offers, over `seams`, with the address of the account the
 /// person is signing in again already typed, if one is. `added` is told what was added.
-pub(super) async fn run_mail(
+pub async fn run_mail(
     seams: &Seams,
     added: &Added,
     prefill: Option<String>,

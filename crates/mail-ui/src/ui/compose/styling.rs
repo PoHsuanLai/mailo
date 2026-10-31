@@ -15,11 +15,11 @@ use super::super::press::on_primary;
 use super::float::commit;
 use super::page::{Float, Page};
 use crate::ui::actions::{Own, hint_own};
-use crate::ui::copy;
 use mail_editor::{
     Align, Marks, Nest, Op, Range, TextColor, TextSize, align_at, indent, marks_at_start, quote,
     step_size, tab,
 };
+use mail_ui_model::copy;
 
 /// The selection, or the caret as an empty range.
 fn target(page: &Page) -> Range {

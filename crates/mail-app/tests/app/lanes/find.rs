@@ -187,7 +187,7 @@ fn command_f_finds_in_the_open_conversation_and_command_k_still_searches() {
     });
     window.type_text("x");
     window.until("nothing found", |h| {
-        count(h).as_deref() == Some(mail_ui::ui::copy::status::NO_MATCHES)
+        count(h).as_deref() == Some(mail_ui_model::copy::status::NO_MATCHES)
     });
 
     // Escape: the bar goes, the marks with it, and the words are as they were.

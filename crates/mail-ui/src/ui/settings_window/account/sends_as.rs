@@ -13,7 +13,6 @@
 //! one alike.
 
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::content::label::Label;
@@ -25,6 +24,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::identity::Typed;
 use mail_domain::{Identity, IdentityId, IsDefault};
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// The key of the Add Alias… row, which no identity's id can be.

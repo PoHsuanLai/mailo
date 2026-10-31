@@ -7,13 +7,11 @@
 pub mod appearance;
 pub mod ask;
 pub mod bin;
-pub mod copy;
 pub mod emoji;
 pub mod handoff;
 pub mod keymap;
 pub mod quick;
 pub mod saved;
-pub mod selection;
 pub mod space;
 pub mod spelling;
 pub mod tidy;
@@ -116,9 +114,9 @@ pub const TRACE: &str = "mailo::trace";
 /// The window on Blitz, for a test to drive through `ds_harness::Harness`.
 pub mod native {
     pub use super::add_account::{
-        AddAccountWindows, AddError, AddFault, Ask as AddAccountAsk, Browse as AddAccountBrowse,
-        DirectSignIns, OpenAddAccount, Opened as AddAccountOpened, Request as AddRequest,
-        Seams as AddAccountSeams, SignInDirectly, Wiring as AddAccountWiring, add_account_root,
+        AddAccountWindows, Ask as AddAccountAsk, Browse as AddAccountBrowse, DirectSignIns,
+        OpenAddAccount, Opened as AddAccountOpened, SignInDirectly, Wiring as AddAccountWiring,
+        add_account_root,
     };
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;

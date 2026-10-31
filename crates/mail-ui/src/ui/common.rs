@@ -1,6 +1,5 @@
 //! What mailo puts on a quire component's own element.
 
-use crate::ui::copy;
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::{Alert, Icon, IconSize, RowLeading, TextLine, TileFace};
@@ -8,6 +7,7 @@ use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use ds::style::icon::family::PlateFamily;
 use ds::style::icon::render::Glyph;
+use mail_ui_model::copy;
 
 /// A component's own layout class: quire writes it after its own, never in place of one, so a
 /// mailo rule can size or place the element without naming a `ds-` class. quire refuses a `ds-`

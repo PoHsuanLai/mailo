@@ -4,8 +4,8 @@
 
 use mail_core::Store;
 use mail_core::contacts::groups;
-use mail_ui::ui::copy;
 use mail_ui::ui::native::DialogAsk;
+use mail_ui_model::copy;
 
 use super::drive::{Drive as _, Key, PRIMARY};
 use super::look::chips;

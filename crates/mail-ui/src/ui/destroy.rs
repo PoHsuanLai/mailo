@@ -9,7 +9,6 @@
 use super::motion::destroy_all;
 use super::press::on_primary;
 use crate::ui::bin::{Bin, Destroying, Reach, bin_shown, doomed, offered, words};
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -19,6 +18,7 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
 use mail_domain::*;
+use mail_ui_model::copy;
 
 /// How many conversations one page of the Empty count reads.
 const PAGE: u32 = 500;

@@ -83,7 +83,7 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
     let page = dioxus_ssr::render(&dom);
     assert!(!on_account_page(&page), "pushed before a click: {page}");
     assert!(
-        page.contains(crate::ui::copy::controls::ADD_ACCOUNT),
+        page.contains(mail_ui_model::copy::controls::ADD_ACCOUNT),
         "{page}"
     );
     // The list names each account by its address and its provider's mark, never its protocol.
@@ -116,9 +116,9 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
     // Download All Mail, the servers, Encryption, and Remove Account… last, alone.
     let mut from = 0;
     for drawn in [
-        crate::ui::copy::fields::DOWNLOAD_ALL_MAIL.to_owned(),
+        mail_ui_model::copy::fields::DOWNLOAD_ALL_MAIL.to_owned(),
         "Receiving".to_owned(),
-        crate::ui::copy::headers::ENCRYPTION.to_owned(),
+        mail_ui_model::copy::headers::ENCRYPTION.to_owned(),
         format!(r#"aria-label="Remove {ADDRESS}""#),
     ] {
         from += page[from..]
@@ -231,14 +231,14 @@ async fn the_page_says_how_much_storage_the_server_counts_once_it_has_said() {
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let seen = click(
         &mut dom,
-        seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
+        seen.one("aria-label", mail_ui_model::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     // The list asks no server: only an account's own page does.
     assert!(asked.lock().unwrap().is_empty());
     let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
     let _ = click(&mut dom, row).merge(drain_seen(&mut dom));
-    let storage = crate::ui::copy::fields::account::STORAGE;
+    let storage = mail_ui_model::copy::fields::account::STORAGE;
     let (shown, page) = until(&mut dom, |page| page.contains(storage)).await;
     assert!(shown, "no storage row: {page}");
     assert_eq!(*asked.lock().unwrap(), vec![poh(&built)]);
@@ -247,8 +247,8 @@ async fn the_page_says_how_much_storage_the_server_counts_once_it_has_said() {
         page.find(drawn)
             .unwrap_or_else(|| panic!("no {drawn}: {page}"))
     };
-    assert!(at(crate::ui::copy::fields::account::RECEIVING) < at(storage));
-    assert!(at(storage) < at(crate::ui::copy::headers::ENCRYPTION));
+    assert!(at(mail_ui_model::copy::fields::account::RECEIVING) < at(storage));
+    assert!(at(storage) < at(mail_ui_model::copy::headers::ENCRYPTION));
 }
 
 /// An account that waits for a sign-in is not asked for its storage: the page would only try the
@@ -279,7 +279,7 @@ async fn an_account_waiting_to_sign_in_is_not_asked_for_its_storage() {
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let seen = click(
         &mut dom,
-        seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
+        seen.one("aria-label", mail_ui_model::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
@@ -319,7 +319,7 @@ async fn a_paused_account_is_not_asked_for_its_storage() {
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let seen = click(
         &mut dom,
-        seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
+        seen.one("aria-label", mail_ui_model::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
@@ -413,7 +413,7 @@ async fn without_a_server_to_ask_the_page_says_nothing_of_storage() {
     let page = dioxus_ssr::render(&dom);
     assert!(on_account_page(&page), "{page}");
     assert!(
-        !page.contains(crate::ui::copy::fields::account::STORAGE),
+        !page.contains(mail_ui_model::copy::fields::account::STORAGE),
         "{page}"
     );
 }

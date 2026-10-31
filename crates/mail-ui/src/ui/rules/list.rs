@@ -29,8 +29,8 @@ use super::server::reach;
 use super::work::{self, Listed, Step};
 use super::{Said, open, row_id};
 use crate::ui::common::Problem;
-use crate::ui::copy;
 use crate::ui::view::{RulesAt, RulesPage as Showing, Shell};
+use mail_ui_model::copy;
 
 /// The keys of the list's rows that are not a rule's.
 const NEW: &str = " new";

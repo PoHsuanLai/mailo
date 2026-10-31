@@ -82,12 +82,12 @@ async fn the_sheet_archives_what_it_lists_and_undo_restores_it() {
 
     let opened = click(
         &mut dom,
-        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
+        seen.one("aria-label", mail_ui_model::copy::aria::SIDEBAR_MENU),
     );
     let opened = settle(&mut dom, opened);
-    let seen = pick_named(&mut dom, &opened, crate::ui::copy::menus::TIDY_UP).await;
+    let seen = pick_named(&mut dom, &opened, mail_ui_model::copy::menus::TIDY_UP).await;
     let page = dioxus_ssr::render(&dom);
-    let button = crate::ui::copy::controls::archive_count(1);
+    let button = mail_ui_model::copy::controls::archive_count(1);
     assert!(
         page.contains(ACCEPTED),
         "the sheet does not name it:\n{page}"

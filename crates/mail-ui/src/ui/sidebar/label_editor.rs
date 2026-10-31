@@ -15,9 +15,9 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::{Change, ChangeId, Hue, Label, LabelId, Patch};
 
-use crate::ui::copy;
 use crate::ui::menu::anchor_at;
 use crate::ui::motion::{Follow, tell};
+use mail_ui_model::copy;
 
 /// The label `id`, on whichever account holds it.
 pub(super) fn label_of(client: &Client, id: LabelId) -> Option<Label> {

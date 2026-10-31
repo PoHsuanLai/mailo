@@ -18,7 +18,6 @@ mod marks;
 mod need;
 mod pass;
 mod scope;
-mod status;
 
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
@@ -37,10 +36,10 @@ use std::sync::Arc;
 pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
+use mail_ui_model::fetching::status::{StatusLine, status_line};
 pub(in crate::ui) use marks::sync_availability;
 pub(in crate::ui) use need::{Need, Needing, needs_you, use_needs};
 pub(in crate::ui) use pass::Passer;
-pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
 
 /// The window's mail fetching. Copy, so a handler can take it.
 #[derive(Clone, Copy)]
@@ -282,7 +281,7 @@ fn announce_added() {
         if let Some(before) = known.as_ref() {
             for row in rows.iter().filter(|row| !before.contains(&row.id)) {
                 crate::ui::motion::tell(
-                    crate::ui::copy::toasts::account_added(&row.address),
+                    mail_ui_model::copy::toasts::account_added(&row.address),
                     crate::ui::motion::Follow::Nothing,
                 );
             }
@@ -327,7 +326,7 @@ pub(in crate::ui) fn use_fetching() -> Fetching {
     // The first window to ask starts it: the program's client fetches on a thread of its own
     // from then on, and one that reads here hands back what this window runs.
     let speaking = use_hook(|| Arc::new(std::sync::Mutex::new(Speaking::default())));
-    let settings = try_consume_context::<Signal<crate::settings::MailSettings>>();
+    let settings = try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>();
     // What the notices say follows Settings, as it is changed.
     {
         let speaking = speaking.clone();
@@ -337,7 +336,7 @@ pub(in crate::ui) fn use_fetching() -> Fetching {
                 *speaking
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = Speaking {
-                    on: notifications.new_mail == crate::settings::NewMail::On,
+                    on: notifications.new_mail == mail_ui_model::settings::NewMail::On,
                     whom: notifications.notify_for.into(),
                 };
             }

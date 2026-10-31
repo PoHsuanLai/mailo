@@ -4,7 +4,7 @@
 
 use ds_harness::Harness;
 use mail_core::SqliteStore;
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 use std::sync::Arc;
 
 use super::drive::Drive;

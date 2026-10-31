@@ -21,10 +21,10 @@ pub struct Notices(pub Arc<dyn Notifier>);
 /// (a test's lone component) has them on, as the setting's default is.
 pub(in crate::ui) fn speaking(
     notices: Option<&Notices>,
-    settings: Option<Signal<crate::settings::MailSettings>>,
+    settings: Option<Signal<mail_ui_model::settings::MailSettings>>,
 ) -> Option<Arc<dyn Notifier>> {
     let on = settings.is_none_or(|settings| {
-        settings.peek().notifications.new_mail == crate::settings::NewMail::On
+        settings.peek().notifications.new_mail == mail_ui_model::settings::NewMail::On
     });
     notices.filter(|_| on).map(|notices| notices.0.clone())
 }
@@ -94,7 +94,7 @@ pub(in crate::ui) fn use_reminders() {
                 let client = crate::ui::live::client();
                 let notices = speaking(
                     try_consume_context::<Notices>().as_ref(),
-                    try_consume_context::<Signal<crate::settings::MailSettings>>(),
+                    try_consume_context::<Signal<mail_ui_model::settings::MailSettings>>(),
                 );
                 let swept = tokio::task::spawn_blocking(move || {
                     let swept = client

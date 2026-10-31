@@ -103,7 +103,7 @@ pub fn words(destroying: &Destroying) -> Words {
     };
     let body = format!(
         "{messages} in {bin} will be deleted from this computer and the server. {}",
-        crate::ui::copy::confirm::CANT_BE_UNDONE
+        mail_ui_model::copy::confirm::CANT_BE_UNDONE
     );
     let confirm = match destroying.reach {
         Reach::Everything => format!("Empty {bin}"),

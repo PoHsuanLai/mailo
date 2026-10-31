@@ -25,10 +25,10 @@ use super::super::menus::{when_in_sentence, when_words};
 use super::super::motion::{Follow, record, tell};
 use super::desk::{Desk, refusal};
 use super::page::{Float, Page, When};
-use crate::ui::copy;
 use crate::ui::space::Scope;
 use crate::ui::view::Shell;
 use mail_client::compose::Leaves;
+use mail_ui_model::copy;
 
 /// The Sends menu's key for "Pick a Time…".
 pub(in crate::ui) const PICK_KEY: &str = "at";

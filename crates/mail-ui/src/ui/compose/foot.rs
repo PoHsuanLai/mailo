@@ -7,7 +7,6 @@
 //! menu sets it back. What the menus list and what a pick does are pure ([`send_items`], [`pick_send`],
 //! [`more_items`], [`pick_more`]), so the tests can say them without a window.
 
-use crate::ui::copy;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
@@ -16,6 +15,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_ui_model::copy;
 
 use super::super::menu::{anchor_at, menu_items};
 use super::super::menus::{snooze_help, when_words};

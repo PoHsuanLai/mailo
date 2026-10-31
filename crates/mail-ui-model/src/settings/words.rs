@@ -2,7 +2,7 @@
 //! names every value (design/22 section 9.1) and the Settings app picks its control by them: a
 //! pair one of whose words is `off` is a switch.
 
-use ds::prelude::Word;
+use ds_core::word::Word;
 use serde::{Deserialize, Serialize};
 
 /// `window.provider_marks`: a provider chip shows the provider's icon, or its letter.

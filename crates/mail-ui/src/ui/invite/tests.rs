@@ -260,7 +260,7 @@ async fn the_invitation_is_one_row_of_three_answers_and_details() {
         "Accept",
         "Maybe",
         "Decline",
-        crate::ui::copy::controls::DETAILS,
+        mail_ui_model::copy::controls::DETAILS,
     ] {
         assert_eq!(
             row.matches(&format!(">{answer}<")).count(),
@@ -279,7 +279,7 @@ async fn the_invitation_is_one_row_of_three_answers_and_details() {
     );
 
     // Details opens the rest, and closes it again.
-    let details = seen.one("aria-label", crate::ui::copy::aria::SHOW_DETAILS);
+    let details = seen.one("aria-label", mail_ui_model::copy::aria::SHOW_DETAILS);
     let mut seen = click(&mut dom, details);
     settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     let open = markup(&dom);
@@ -408,7 +408,7 @@ async fn save_ics_writes_the_event_beside_what_is_there_and_never_over_it() {
     // The file is one of the Details, which open on a press.
     let mut seen = click(
         &mut dom,
-        seen.one("aria-label", crate::ui::copy::aria::SHOW_DETAILS),
+        seen.one("aria-label", mail_ui_model::copy::aria::SHOW_DETAILS),
     );
     settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     let save = seen.one("aria-label", "Save .ics");

@@ -11,8 +11,8 @@ use ds::style::icon::family::PlateFamily;
 use ds::style::icon::render::IconPx;
 use mail_client::trust::Destination;
 
-use crate::ui::copy;
 use crate::ui::view::{LinkCard, Shell};
+use mail_ui_model::copy;
 
 /// What the card says of a link: a title, the site, and a warning when the text lies.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -17,7 +17,6 @@
 //! forever, and lands on the undo stack like any other op.
 
 use super::act::{Pressed, op_icon};
-use crate::ui::copy::menus;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::components::menus::item::item::{MenuImage, MenuItem};
@@ -27,6 +26,7 @@ use ds::root::common::Common;
 use ds::style::tokens::system_hue::SystemHue;
 use mail_client::conversation::{offers, says};
 use mail_domain::{Hue, MailboxRole, OpKind, ReadState, Star, ThreadSummary};
+use mail_ui_model::copy::menus;
 
 /// A row of the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -358,7 +358,7 @@ pub(super) fn RowMenu(
             anchor: crate::ui::menu::anchor_for(anchor, Some(at)),
             items,
             common: Common {
-                aria_label: Some(crate::ui::copy::aria::actions_for(&subject)),
+                aria_label: Some(mail_ui_model::copy::aria::actions_for(&subject)),
                 ..Common::default()
             },
             onpick: on_pick,
@@ -370,9 +370,9 @@ pub(super) fn RowMenu(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::copy::menus as m;
     use crate::ui::view::Shell;
     use chrono::TimeZone;
+    use mail_ui_model::copy::menus as m;
 
     use mail_domain::*;
 

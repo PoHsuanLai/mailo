@@ -8,7 +8,7 @@
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
 use mail_os::launcher::{Badge, Launcher, Unread};
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};
@@ -110,8 +110,8 @@ fn letters(store: &mail_core::SqliteStore) {
 fn open(counts: &Arc<Counts>) -> Window {
     let counts = Arc::clone(counts);
     Window::open_with(chrono::Utc::now(), letters, move |dir, contexts| {
-        let settings = mail_ui::settings::root_for(&dir.join("config"));
-        mail_ui::settings::change(&settings, |settings| {
+        let settings = mail_ui_model::settings::root_for(&dir.join("config"));
+        mail_ui_model::settings::change(&settings, |settings| {
             settings.reading.brand_logos = mail_core::bimi::Setting::On.into();
         })
         .expect("the setting is written");

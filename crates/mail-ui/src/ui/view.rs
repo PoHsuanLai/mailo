@@ -4,7 +4,6 @@
 //! open and what the reader should do with a body are all decisions that can be wrong, and none
 //! of them needs a window to be wrong in. The rendering layer reads this and draws it.
 
-use crate::ui::selection::{Click, Picked, Toward};
 use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
 use mail_client::compose::addresses::{join_addresses, parse_addresses};
@@ -12,6 +11,7 @@ use mail_client::conversation::{mute_for_all, offers};
 use mail_client::mailbox_filter::for_role;
 use mail_domain::*;
 use mail_reader::{RemoteImages, SanitizePolicy};
+use mail_ui_model::selection::{Click, Picked, Toward};
 use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -53,8 +53,8 @@ pub fn selected_after(
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
 pub fn mute_label(summaries: &[ThreadSummary]) -> &'static str {
     match mute_for_all(summaries) {
-        Mute::Muted => crate::ui::copy::menus::MUTE,
-        Mute::Unmuted => crate::ui::copy::menus::UNMUTE,
+        Mute::Muted => mail_ui_model::copy::menus::MUTE,
+        Mute::Unmuted => mail_ui_model::copy::menus::UNMUTE,
     }
 }
 
@@ -75,28 +75,28 @@ pub enum Marks {
     Letters,
 }
 
-impl From<crate::settings::ProviderMarks> for Marks {
-    fn from(marks: crate::settings::ProviderMarks) -> Self {
+impl From<mail_ui_model::settings::ProviderMarks> for Marks {
+    fn from(marks: mail_ui_model::settings::ProviderMarks) -> Self {
         match marks {
-            crate::settings::ProviderMarks::Icons => Marks::Icons,
-            crate::settings::ProviderMarks::Letters => Marks::Letters,
+            mail_ui_model::settings::ProviderMarks::Icons => Marks::Icons,
+            mail_ui_model::settings::ProviderMarks::Letters => Marks::Letters,
         }
     }
 }
 
 impl PageParts {
     /// The parts `window` keeps shown.
-    pub fn of(window: &crate::settings::WindowSettings) -> Self {
+    pub fn of(window: &mail_ui_model::settings::WindowSettings) -> Self {
         let part = |on: bool| if on { RowPart::Shown } else { RowPart::Hidden };
         Self {
-            snippet: part(window.snippets == crate::settings::Snippets::On),
-            chips: part(window.label_chips == crate::settings::LabelChips::On),
+            snippet: part(window.snippets == mail_ui_model::settings::Snippets::On),
+            chips: part(window.label_chips == mail_ui_model::settings::LabelChips::On),
         }
     }
 
     /// These parts kept in `window`.
-    pub fn keep(self, window: &mut crate::settings::WindowSettings) {
-        use crate::settings::{LabelChips, Snippets};
+    pub fn keep(self, window: &mut mail_ui_model::settings::WindowSettings) {
+        use mail_ui_model::settings::{LabelChips, Snippets};
         window.snippets = if self.snippet.shown() {
             Snippets::On
         } else {
@@ -110,29 +110,29 @@ impl PageParts {
     }
 }
 
-impl From<crate::settings::GroupByDate> for PageGroup {
-    fn from(group: crate::settings::GroupByDate) -> Self {
+impl From<mail_ui_model::settings::GroupByDate> for PageGroup {
+    fn from(group: mail_ui_model::settings::GroupByDate) -> Self {
         match group {
-            crate::settings::GroupByDate::On => PageGroup::Date,
-            crate::settings::GroupByDate::Off => PageGroup::None,
+            mail_ui_model::settings::GroupByDate::On => PageGroup::Date,
+            mail_ui_model::settings::GroupByDate::Off => PageGroup::None,
         }
     }
 }
 
-impl From<PageGroup> for crate::settings::GroupByDate {
+impl From<PageGroup> for mail_ui_model::settings::GroupByDate {
     fn from(group: PageGroup) -> Self {
         match group {
-            PageGroup::Date => crate::settings::GroupByDate::On,
-            PageGroup::None => crate::settings::GroupByDate::Off,
+            PageGroup::Date => mail_ui_model::settings::GroupByDate::On,
+            PageGroup::None => mail_ui_model::settings::GroupByDate::Off,
         }
     }
 }
 
-impl From<Marks> for crate::settings::ProviderMarks {
+impl From<Marks> for mail_ui_model::settings::ProviderMarks {
     fn from(marks: Marks) -> Self {
         match marks {
-            Marks::Icons => crate::settings::ProviderMarks::Icons,
-            Marks::Letters => crate::settings::ProviderMarks::Letters,
+            Marks::Icons => mail_ui_model::settings::ProviderMarks::Icons,
+            Marks::Letters => mail_ui_model::settings::ProviderMarks::Letters,
         }
     }
 }
@@ -1969,7 +1969,7 @@ impl Nothing {
             Nothing::NoAccount => "No account".to_owned(),
             Nothing::NoMatch(needle) => format!("No results for \u{201c}{needle}\u{201d}"),
             Nothing::EmptyFolder => "Empty".to_owned(),
-            Nothing::Filtered => crate::ui::copy::empty::NOTHING_MATCHES_FILTER.to_owned(),
+            Nothing::Filtered => mail_ui_model::copy::empty::NOTHING_MATCHES_FILTER.to_owned(),
         }
     }
 }
@@ -2172,7 +2172,7 @@ mod keyboard {
         assert_eq!(op_for_shortcut(Shortcut::ToggleMute, &unmuted), None);
 
         // A selection is named for the one mute it takes: unmute only when every one is muted.
-        use crate::ui::copy::menus::{MUTE, UNMUTE};
+        use mail_ui_model::copy::menus::{MUTE, UNMUTE};
         const CASES: &[(&[Mute], &str)] = &[
             (&[Mute::Unmuted], MUTE),
             (&[Mute::Muted], UNMUTE),
@@ -2397,7 +2397,7 @@ mod nothing_tests {
         }
         assert_eq!(
             Nothing::Filtered.message(),
-            crate::ui::copy::empty::NOTHING_MATCHES_FILTER
+            mail_ui_model::copy::empty::NOTHING_MATCHES_FILTER
         );
     }
 }

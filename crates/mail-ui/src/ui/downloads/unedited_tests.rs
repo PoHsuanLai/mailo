@@ -1,7 +1,7 @@
 use super::{Ledger, NotRecorded, is_deleted, record, remove_for_deleted, remove_on_quit};
-use crate::settings::RemoveUnedited;
 use mail_core::Store as _;
 use mail_domain::MessageId;
+use mail_ui_model::settings::RemoveUnedited;
 use std::path::{Path, PathBuf};
 
 /// The folder Open writes into, and a folder of the person's beside it, in one scratch folder.

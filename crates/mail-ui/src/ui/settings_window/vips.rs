@@ -5,7 +5,6 @@
 //! place and "Notify for: VIPs only" all read it there. Pinned people are a Space's shortcuts and
 //! stay so; they are offered here, never made VIPs by being pinned.
 
-use crate::ui::copy;
 use crate::ui::press::on_primary;
 use crate::ui::space::Pinned;
 use dioxus::prelude::*;
@@ -13,6 +12,7 @@ use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::vip::{Mark, Vip, Vips};
+use mail_ui_model::copy;
 
 /// A person a row names: their name with their address, or the address alone.
 fn shown(name: Option<&str>, address: &str) -> String {

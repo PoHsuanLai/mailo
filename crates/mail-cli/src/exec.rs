@@ -41,7 +41,7 @@ pub fn prepare(command: Option<Command>) -> Result<Prepared, String> {
     }
     // The schema needs nothing but somewhere to write it: no store, no config directory.
     if let Some(Command::WriteSchema { dir }) = &command {
-        print!("{}", mail_ui::settings::write_schema(dir)?);
+        print!("{}", mail_ui_model::settings::write_schema(dir)?);
         return Ok(Prepared::Finished);
     }
 
@@ -224,7 +224,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     if reads_settings(&command)
         && let Some(config) = mail_core::config::config_dir()
     {
-        let found = mail_ui::damage::of_config(&config);
+        let found = mail_ui_model::damage::of_config(&config);
         if !found.is_empty() {
             let mut said: Vec<String> = found.iter().map(ToString::to_string).collect();
             said.push("fix or move the file aside, then run the command again".to_owned());
@@ -267,7 +267,8 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             let ended = mail_core::ipc::daemon::serve(
                 store,
                 std::sync::Arc::new(|store| {
-                    let mail = mail_edge::mail(&store).with_junk(mail_ui::settings::junk_policy());
+                    let mail =
+                        mail_edge::mail(&store).with_junk(mail_ui_model::settings::junk_policy());
                     match mail_edge::block_on(mail.sync().run(Default::default())) {
                         Ok(ends) => print!("{}", super::sync::run_text(&store, &ends)),
                         Err(why) => eprintln!("{}", super::remedy::error(why)),
@@ -355,7 +356,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     }
 
     if let Command::Notify { set } = &command {
-        let said = super::settings::notify(mail_ui::settings::person_root().as_ref(), *set)?;
+        let said = super::settings::notify(mail_ui_model::settings::person_root().as_ref(), *set)?;
         print!("{said}");
         return Ok(());
     }
@@ -427,10 +428,10 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let notices = match notify {
             super::WatchNotify::Never => None,
             super::WatchNotify::AsSet => {
-                let desktop = mail_ui::desktop::connect();
-                Some(mail_ui::settings::Notices::new(
+                let desktop = mail_os::desktop::connect();
+                Some(mail_ui_model::settings::Notices::new(
                     Box::new(move |notification, sound| desktop.show_with(notification, sound)),
-                    mail_ui::settings::person_root(),
+                    mail_ui_model::settings::person_root(),
                 ))
             }
         };
@@ -450,7 +451,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             notifier,
             mail_core::sync::watcher::Live {
                 whom: &whom,
-                junk: &mail_ui::settings::junk_policy,
+                junk: &mail_ui_model::settings::junk_policy,
             },
             &say,
             asked,

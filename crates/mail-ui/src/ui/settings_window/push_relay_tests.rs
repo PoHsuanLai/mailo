@@ -3,13 +3,13 @@
 //! is marked invalid, for an address that cannot be a relay's. Against the fixture's store only:
 //! nothing is registered or subscribed from a page.
 
-use crate::ui::copy::errors::{RELAY_EXTRAS, RELAY_NOT_HTTPS};
-use crate::ui::copy::fields::account::{PUSH_RELAY, PUSH_RELAY_EXAMPLE};
 use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Work, chord, drain_seen, type_into, work};
 use dioxus::html::Modifiers;
 use mail_core::sync::graph_push;
 use mail_domain::Incoming;
+use mail_ui_model::copy::errors::{RELAY_EXTRAS, RELAY_NOT_HTTPS};
+use mail_ui_model::copy::fields::account::{PUSH_RELAY, PUSH_RELAY_EXAMPLE};
 use porter_core::AccountId;
 
 const ADDRESS: &str = "poh@acme.example";
@@ -73,7 +73,7 @@ async fn a_relay_is_kept_on_return_and_one_that_cannot_be_is_refused() {
         "the refusal is not said: {page}"
     );
     assert!(
-        !page.contains(crate::ui::copy::titles::NOT_SAVED),
+        !page.contains(mail_ui_model::copy::titles::NOT_SAVED),
         "said in a dialog: {page}"
     );
     assert_eq!(

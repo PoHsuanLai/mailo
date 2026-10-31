@@ -4,7 +4,7 @@
 //! read and from which network address. So the reader blocks them unless the person has said
 //! otherwise, either for the conversation in front of them (`Shell::show_remote_images`, the
 //! "Show images" press) or ahead of time, in `reading.remote_images` and the trusted senders
-//! (`crate::settings::ReadingSettings`). [`auto_allow`] is the second half; the reader takes
+//! (`mail_ui_model::settings::ReadingSettings`). [`auto_allow`] is the second half; the reader takes
 //! either.
 //!
 //! What it trusts is an address, so it only believes an address it can tie to its sender: a
@@ -13,11 +13,11 @@
 //! loaded on the list's word. Anyone can write any address in From; the list would otherwise be a
 //! list of addresses to forge.
 
-use crate::settings::LoadRemoteImages;
 use dioxus::prelude::*;
 use mail_client::Client;
 use mail_client::message::Looks;
 use mail_domain::{BlobId, MailboxRole, Message, MessageId};
+use mail_ui_model::settings::LoadRemoteImages;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -119,7 +119,7 @@ pub(super) fn dmarc_known(
 /// are not known yet is not trusted yet: the message is asked about, its checks are put in
 /// `wanted`, and the reader decides again once they land.
 pub(super) fn auto_allow_message(
-    reading: &crate::settings::ReadingSettings,
+    reading: &mail_ui_model::settings::ReadingSettings,
     looks: &Looks,
     checked: &Checked,
     message: &Message,
@@ -194,7 +194,7 @@ pub(super) fn look_later(
 #[cfg(test)]
 mod tests {
     use super::auto_allow;
-    use crate::settings::LoadRemoteImages::{self, Always, Ask, Never, Trusted};
+    use mail_ui_model::settings::LoadRemoteImages::{self, Always, Ask, Never, Trusted};
 
     const SENDER: &str = "billing@shop.example";
 

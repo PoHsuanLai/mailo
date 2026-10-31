@@ -32,12 +32,12 @@ use ds::root::common::Common;
 use super::common::Told;
 use super::data::AccountRow;
 use super::files::{Phase, run};
-use crate::ui::copy;
 use crate::ui::view::{RulesAt, Shell};
 use editor::RulePage;
 use list::RulesList;
 use mail_client::rules::server::AwayServer;
 use mail_domain::Rule;
+use mail_ui_model::copy;
 use server::{AwaySetter, Pusher, put, reach, reach_away, set_away};
 pub(in crate::ui) use vacation::{VacationPage, back as vacation_back};
 

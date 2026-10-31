@@ -168,8 +168,8 @@ mod tests {
                 starred_and_read(),
                 Grouping::Saved(GroupKey::Star),
                 &[
-                    (crate::ui::copy::fields::STARRED, &["a", "c"]),
-                    (crate::ui::copy::fields::NOT_STARRED, &["b"]),
+                    (mail_ui_model::copy::fields::STARRED, &["a", "c"]),
+                    (mail_ui_model::copy::fields::NOT_STARRED, &["b"]),
                 ],
             ),
             (
@@ -177,8 +177,8 @@ mod tests {
                 starred_and_read(),
                 Grouping::Saved(GroupKey::Read),
                 &[
-                    (crate::ui::copy::headers::UNREAD, &["b", "c"]),
-                    (crate::ui::copy::headers::READ, &["a"]),
+                    (mail_ui_model::copy::headers::UNREAD, &["b", "c"]),
+                    (mail_ui_model::copy::headers::READ, &["a"]),
                 ],
             ),
             (
@@ -194,7 +194,7 @@ mod tests {
                 "an empty band",
                 vec![thread("a", Read, Unstarred, vec![])],
                 Grouping::Saved(GroupKey::Read),
-                &[(crate::ui::copy::headers::READ, &["a"])],
+                &[(mail_ui_model::copy::headers::READ, &["a"])],
             ),
             (
                 "by where it is",
@@ -206,7 +206,7 @@ mod tests {
                 "the page menu's",
                 vec![thread("a", Unread, Unstarred, vec![])],
                 Grouping::Page(PageGroup::Date),
-                &[(crate::ui::copy::headers::TODAY, &["a"])],
+                &[(mail_ui_model::copy::headers::TODAY, &["a"])],
             ),
         ];
         for (name, threads, grouping, want) in cases {

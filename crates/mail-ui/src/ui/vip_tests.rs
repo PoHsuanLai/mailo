@@ -7,10 +7,10 @@ use super::fixtures::{
     Seen, click, dispatching, listed_subjects, pick_named, rebuild_into, right_click, settle,
     settle_quiet_seen, work,
 };
-use crate::ui::copy;
 use dioxus::prelude::*;
 use mail_core::Store as _;
 use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir};
+use mail_ui_model::copy;
 
 const DANA: &str = "dana@example.com";
 const UIDL: &str = "Re: UIDL stability across a UIDVALIDITY change";

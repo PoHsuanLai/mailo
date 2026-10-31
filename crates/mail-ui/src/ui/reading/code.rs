@@ -7,7 +7,6 @@
 //! Copy Code goes through `ui::sensitive_copy`, not the window's host: the code is kept out of
 //! clipboard history and cloud sync, which the host's plain copy does not do.
 
-use crate::ui::copy::{controls, status, toasts};
 use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
@@ -15,6 +14,7 @@ use ds::components::controls::button_model::Bezel;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::{BlobId, MessageId};
+use mail_ui_model::copy::{controls, status, toasts};
 
 /// The line for one message, once its code is known; nothing for a message with none.
 ///

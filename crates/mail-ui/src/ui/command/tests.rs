@@ -93,12 +93,12 @@ fn the_sidebar_row_names_what_a_pick_does() {
         (
             "pinned",
             Shown::Visible,
-            crate::ui::copy::menus::HIDE_SIDEBAR,
+            mail_ui_model::copy::menus::HIDE_SIDEBAR,
         ),
         (
             "hidden",
             Shown::Hidden,
-            crate::ui::copy::menus::SHOW_SIDEBAR,
+            mail_ui_model::copy::menus::SHOW_SIDEBAR,
         ),
     ];
     for (name, sidebar, want) in CASES {
@@ -131,7 +131,7 @@ fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
         .find(|item| item.key == SIDEBAR_KEY)
         .expect("the sidebar row matches");
     let renamed = restate_sidebar(row, Shown::Hidden, "sidebar");
-    assert_eq!(renamed.name, crate::ui::copy::menus::SHOW_SIDEBAR);
+    assert_eq!(renamed.name, mail_ui_model::copy::menus::SHOW_SIDEBAR);
     let marked: String = renamed
         .name
         .chars()
@@ -139,7 +139,7 @@ fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
         .filter(|(index, _)| renamed.marks.contains(&(*index as u32)))
         .map(|(_, c)| c)
         .collect();
-    assert_eq!(marked, crate::ui::copy::aria::SIDEBAR);
+    assert_eq!(marked, mail_ui_model::copy::aria::SIDEBAR);
 }
 
 /// The chips under the field: the syntax while nothing is typed or while the last word starts an

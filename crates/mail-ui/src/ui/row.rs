@@ -20,9 +20,7 @@ use super::motion::{act_kind, drag, motion};
 use super::ops::{Writes, open_composer};
 use super::picks::drawn_order;
 use crate::ui::compose::{cancel_scheduled, delete_stored_draft};
-use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
-use crate::ui::selection::Click;
 use crate::ui::view::Marks;
 use crate::ui::view::{Opened, Shell};
 use act::press;
@@ -43,6 +41,8 @@ use ds::style::icon::render::Glyph;
 use listed::{Listed, Opens, RowModel};
 use mail_client::provider::Provider;
 use mail_domain::*;
+use mail_ui_model::copy;
+use mail_ui_model::selection::Click;
 use menu::{Pick, RowMenu};
 use std::ops::Range;
 

@@ -153,7 +153,11 @@ struct Real {
 
 impl SignInDirectly for Real {
     fn has_client(&self, issuer: Issuer) -> bool {
-        super::provider::has_client(issuer, &self.client.net().environment(), &self.clients)
+        mail_ui_model::add_account::provider::has_client(
+            issuer,
+            &self.client.net().environment(),
+            &self.clients,
+        )
     }
 
     fn sign_in(&self, issuer: Issuer, mode: Mode) -> Signing {
@@ -210,9 +214,10 @@ fn runner() -> Option<DirectSignIns> {
 /// and then "+" opens the window as it always did.
 pub(in crate::ui) fn offered_redirects() -> Vec<(Issuer, String)> {
     match runner() {
-        Some(runner) => redirects(&super::provider::offered_specs(), &|issuer| {
-            runner.0.has_client(issuer)
-        }),
+        Some(runner) => redirects(
+            &mail_ui_model::add_account::provider::offered_specs(),
+            &|issuer| runner.0.has_client(issuer),
+        ),
         None => Vec::new(),
     }
 }
@@ -344,7 +349,7 @@ impl Retry {
     /// The button's words.
     pub(in crate::ui) fn label(&self) -> &'static str {
         match self {
-            Retry::Direct { .. } => crate::ui::copy::controls::TRY_AGAIN,
+            Retry::Direct { .. } => mail_ui_model::copy::controls::TRY_AGAIN,
             Retry::Window(_) => "Use Add Account\u{2026}",
         }
     }

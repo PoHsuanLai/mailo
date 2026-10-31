@@ -5,13 +5,13 @@ use super::folder_act::child_path;
 use super::folder_row::run;
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
-use crate::ui::copy;
 use dioxus::prelude::*;
 use ds::components::content::label::LabelRole;
 use ds::components::lists::row::row::Outline;
 use ds::focus::request::use_focus_request;
 use ds::prelude::*;
 use mail_domain::{FolderWork, Subscription};
+use mail_ui_model::copy;
 use porter_core::AccountId;
 
 /// The row for a new folder's name, under the folder it goes in (or at the top of the list):

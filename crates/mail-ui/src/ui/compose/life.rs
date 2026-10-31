@@ -17,9 +17,9 @@ use super::page::{Guard, Page, Phase, Saved, When, Wire};
 use super::protection::Protection;
 use super::recipients::commit_typed;
 use super::seal::SealBar;
-use crate::settings::{ComposeSettings, MessageFormat};
 use crate::ui::today::Today;
 use mail_editor::missing_attachment;
+use mail_ui_model::settings::{ComposeSettings, MessageFormat};
 
 /// How long a send waits in the outbox before it may leave, which is how long Undo has: the
 /// person's `compose.undo_send`, read when Send is pressed, so a change in Settings counts from the

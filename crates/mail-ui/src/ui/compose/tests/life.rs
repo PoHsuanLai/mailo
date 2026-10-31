@@ -38,7 +38,7 @@ fn an_autosave_taken_before_a_discard_does_not_bring_the_draft_back() {
         &crate::ui::fixtures::client(&store),
         draft.id,
         &mut Vec::new(),
-        &crate::settings::ComposeSettings::default(),
+        &mail_ui_model::settings::ComposeSettings::default(),
     )
     .expect("the draft's page");
     let taken = life::stamp();
@@ -121,7 +121,7 @@ fn an_autosave_queues_the_draft_s_copy_for_the_server_s_drafts_folder() {
         &crate::ui::fixtures::client(&store),
         draft.id,
         &mut Vec::new(),
-        &crate::settings::ComposeSettings::default(),
+        &mail_ui_model::settings::ComposeSettings::default(),
     )
     .expect("the draft's page");
     page.subject = "half a thought".to_owned();
@@ -192,7 +192,7 @@ async fn send_with_nobody_to_send_to_queues_nothing_and_marks_the_to_field_inval
         "the To field was refused before Send was pressed:\n{untouched}"
     );
 
-    let send = seen.one("aria-label", crate::ui::copy::controls::SEND);
+    let send = seen.one("aria-label", mail_ui_model::copy::controls::SEND);
     click(&mut window.dom, send);
     let markup = window.render();
     assert_eq!(
@@ -246,7 +246,7 @@ async fn an_attachment_mentioned_and_missing_shows_one_bar_until_send_anyway() {
 
     let after_send = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert_eq!(
@@ -288,7 +288,7 @@ async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
     window.dom.provide_root_context(dialogs);
     click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::ATTACH),
+        seen.one("aria-label", mail_ui_model::copy::controls::ATTACH),
     );
     for _ in 0..40 {
         let quiet = std::time::Duration::from_millis(150);
@@ -522,7 +522,7 @@ async fn a_sent_page_folds_away_on_quires_clock() {
     let sent = tokio::time::Instant::now();
     click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert!(
@@ -560,9 +560,12 @@ async fn send_waits_as_long_as_the_undo_send_setting_says() {
         config: dir.path().join("config"),
         state: dir.path().join("state"),
     };
-    crate::settings::change(&crate::settings::root_for(&dirs.config), |settings| {
-        settings.compose.undo_send = crate::settings::UndoSend::Seconds30;
-    })
+    mail_ui_model::settings::change(
+        &mail_ui_model::settings::root_for(&dirs.config),
+        |settings| {
+            settings.compose.undo_send = mail_ui_model::settings::UndoSend::Seconds30;
+        },
+    )
     .unwrap_or_else(|why| panic!("{why}"));
     let draft = fresh_draft(&store);
     let (mut window, seen) = Window::open(
@@ -580,7 +583,7 @@ async fn send_waits_as_long_as_the_undo_send_setting_says() {
     let pressed = Utc::now();
     click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert!(
@@ -621,7 +624,7 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
 
     let painted = click(
         &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::controls::SEND),
+        seen.one("aria-label", mail_ui_model::copy::controls::SEND),
     );
     let markup = window.render();
     assert_eq!(queued(&store), before_queue + 1, "Send queued nothing");
@@ -697,7 +700,7 @@ async fn a_picture_in_the_body_reopens_drawn_and_is_saved_by_its_name() {
         &crate::ui::fixtures::client(&store),
         draft.id,
         &mut Vec::new(),
-        &crate::settings::ComposeSettings::default(),
+        &mail_ui_model::settings::ComposeSettings::default(),
     )
     .expect("the draft's page");
     let shown = page.session.doc.nodes.iter().any(|node| {

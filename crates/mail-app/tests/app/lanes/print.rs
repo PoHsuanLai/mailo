@@ -3,7 +3,7 @@
 //! The print dialog is a recorder; the PDF lands where the window saves files. ⌘P prints the
 //! open conversation as the first row does.
 
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 
 use super::drive::{Key, PRIMARY};
 use super::window::{INBOX, Window, deliver, hours_ago};

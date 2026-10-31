@@ -119,7 +119,7 @@ static ROUTE: Mutex<Option<Route>> = Mutex::new(None);
 /// `None` when the settings cannot be trusted (`settings::privacy_in_doubt`), and a relay or a
 /// proxy that cannot be used is not taken as fetching straight.
 fn route_of(
-    privacy: Option<&crate::settings::PrivacySettings>,
+    privacy: Option<&mail_ui_model::settings::PrivacySettings>,
     relay_key: Option<&str>,
 ) -> Option<Route> {
     privacy?.route(relay_key).ok()
@@ -127,7 +127,10 @@ fn route_of(
 
 /// Fetch the window's images the way `privacy` says from now on; `None` for settings that cannot
 /// be trusted fetches none.
-pub(crate) fn follow(privacy: Option<&crate::settings::PrivacySettings>, relay_key: Option<&str>) {
+pub(crate) fn follow(
+    privacy: Option<&mail_ui_model::settings::PrivacySettings>,
+    relay_key: Option<&str>,
+) {
     *ROUTE.lock().unwrap_or_else(PoisonError::into_inner) = route_of(privacy, relay_key);
 }
 
@@ -185,7 +188,7 @@ impl FetchImage for Web {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::{PrivacySettings, Protect};
+    use mail_ui_model::settings::{PrivacySettings, Protect};
 
     #[test]
     fn settings_that_are_not_known_or_cannot_be_used_fetch_nothing() {

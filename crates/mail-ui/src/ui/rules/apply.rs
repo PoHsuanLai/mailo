@@ -5,7 +5,6 @@
 //! an alert says so first and offers to apply the rules without the sending.
 
 use super::work::apply_to;
-use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
@@ -13,6 +12,7 @@ use ds::prelude::*;
 use mail_client::Client;
 use mail_client::rules::manage::Sending;
 use mail_domain::ThreadId;
+use mail_ui_model::copy;
 
 /// Apply the rules to `threads`: at once when none of them would send, else ask first.
 pub(in crate::ui) fn apply_or_ask(

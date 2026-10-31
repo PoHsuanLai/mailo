@@ -155,10 +155,10 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
     // The app runs for days: what is said, whose mail, in which mailboxes, with which sound, and
     // how the junk filter behaves are each read as they are used, so Settings is followed from
     // the next pass and not from the next start.
-    let desktop = mail_ui::desktop::connect_in_window();
-    let notifier = mail_ui::settings::Notices::new(
+    let desktop = mail_os::desktop::connect_in_window();
+    let notifier = mail_ui_model::settings::Notices::new(
         Box::new(move |notification, sound| desktop.show_with(notification, sound)),
-        mail_ui::settings::person_root(),
+        mail_ui_model::settings::person_root(),
     );
     let tell = |watched: mail_core::sync::report::Watched| told(&watched);
     let mut down = Duration::ZERO;
@@ -172,7 +172,7 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
                 Some(&notifier),
                 mail_core::sync::watcher::Live {
                     whom: &|| notifier.whom(),
-                    junk: &mail_ui::settings::junk_policy,
+                    junk: &mail_ui_model::settings::junk_policy,
                 },
                 &tell,
                 Some(held.asked()),

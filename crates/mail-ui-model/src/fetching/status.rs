@@ -270,9 +270,9 @@ where
 {
     let minutes = (now - at).num_minutes();
     match (now - at).num_seconds() {
-        ..60 => crate::ui::copy::status::JUST_NOW.to_owned(),
-        _ if minutes < 60 => crate::ui::copy::status::minutes_ago(minutes),
-        _ => crate::ui::copy::status::at_clock(&clock_at(at, zone, clock)),
+        ..60 => crate::copy::status::JUST_NOW.to_owned(),
+        _ if minutes < 60 => crate::copy::status::minutes_ago(minutes),
+        _ => crate::copy::status::at_clock(&clock_at(at, zone, clock)),
     }
 }
 
@@ -619,7 +619,7 @@ mod tests {
     /// rest of the line as it is.
     #[test]
     fn the_tip_says_the_age_in_fewer_words() {
-        use crate::ui::copy::status::{JUST_NOW, at_clock, minutes_ago};
+        use crate::copy::status::{JUST_NOW, at_clock, minutes_ago};
         let cases = [
             (t(0, 0), 0, JUST_NOW.to_owned()),
             (t(1, 0), 0, minutes_ago(1)),

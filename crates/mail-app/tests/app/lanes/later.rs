@@ -12,7 +12,7 @@ use mail_core::Store;
 use mail_core::follow_up::{CHOICES, returned_words};
 use mail_core::notify::Opens;
 use mail_domain::{FollowUp, SendState};
-use mail_ui::ui::copy;
+use mail_ui_model::copy;
 
 use super::drive::{Drive, Key};
 use super::look::{SUBMENU_LIST, conversation};
