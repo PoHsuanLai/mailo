@@ -17,7 +17,12 @@ categories = ["email", "text-processing"]
 name = "mail_logic"
 
 [dependencies]
+mail-domain.workspace = true
+porter-core.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+mail-domain = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

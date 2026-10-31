@@ -5,8 +5,8 @@ use crate::ui::today::{Today, at};
 use chrono::{TimeZone, Utc};
 use mail_core::SqliteStore;
 use mail_core::Store;
-use mail_logic::when::Clock;
 use mail_domain::{Address, Draft, DraftId, ThreadId};
+use mail_logic::when::Clock;
 
 fn time(minute: i64) -> chrono::DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + minute * 60, 0).unwrap()

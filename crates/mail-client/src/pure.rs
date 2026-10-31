@@ -38,8 +38,8 @@ pub mod bimi {
 }
 pub mod compose {
     pub use mail_core::compose::{
-        ATTACHMENT_BUDGET, Answer, Fit, Leaves, Myself, PictureSize, Quote, Redirected, Said,
-        SendError, SendLimit, Weight, Written, doc_of, fit, shows_inline,
+        ATTACHMENT_BUDGET, Answer, Fit, Leaves, Myself, Quote, Redirected, Said, SendError,
+        SendLimit, Weight, Written, doc_of, fit, shows_inline,
     };
     pub mod addresses {
         pub use mail_core::compose::addresses::{join_addresses, parse_addresses};
@@ -220,9 +220,6 @@ pub mod transfer {
 }
 pub mod trust {
     pub use mail_core::trust::{Destination, destination, spoof};
-}
-pub mod undo {
-    pub use mail_core::undo::{Resend, Undo, UndoHandle, UndoStack, reverse_folder};
 }
 pub mod unsubscribe {
     pub use mail_core::unsubscribe::{Found, Outcome, client};

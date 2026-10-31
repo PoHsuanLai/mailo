@@ -25,8 +25,8 @@ use ds::components::menus::pop_up_button::PopUpButton;
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
 use mail_client::Client;
-use mail_logic::when::Clock;
 use mail_domain::*;
+use mail_logic::when::Clock;
 
 /// How many conversations one page of the search reads.
 const PAGE: u32 = 500;

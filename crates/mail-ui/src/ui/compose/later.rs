@@ -16,9 +16,9 @@ use ds::root::pass_through::ExtraClass;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
-use mail_client::undo::{Resend, Undo};
-use mail_logic::when::Clock;
 use mail_domain::{ChangeId, Draft, DraftId, Patch, SendState};
+use mail_logic::undo::{Resend, Undo};
+use mail_logic::when::Clock;
 
 use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};

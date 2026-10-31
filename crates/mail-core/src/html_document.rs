@@ -8,9 +8,9 @@
 
 use crate::error::CoreError;
 use crate::error::Logged;
-use mail_logic::when::Clock;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
+use mail_logic::when::Clock;
 use mail_mime::Parsed;
 use mail_reader::{Labels, Options, Pages, Remote, Sheet};
 use mail_store::{SqliteStore, Store};
@@ -291,8 +291,8 @@ pub fn write_file_into(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_logic::when::time_of_day;
     use chrono::FixedOffset;
+    use mail_logic::when::time_of_day;
 
     #[test]
     fn a_printout_writes_its_hours_as_the_rest_of_mail_does() {

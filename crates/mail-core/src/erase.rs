@@ -14,9 +14,9 @@
 //! no time at all. A message restored and deleted again starts again.
 
 use crate::error::Logged;
-use crate::undo::Undo;
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{Change, MailboxRole, MessageId, ThreadId};
+use mail_logic::undo::Undo;
 use mail_store::SqliteStore;
 use mail_store::binned::{Binned, Settled, Soon};
 use porter_core::AccountId;

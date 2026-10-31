@@ -1878,8 +1878,8 @@ mod carrying_a_file {
         let limit = compose::SendLimit::USUAL;
         assert_eq!(weight.pictures(), 1);
         assert!(
-            weight.against(compose::PictureSize::Small, limit)
-                < weight.against(compose::PictureSize::Actual, limit)
+            weight.against(mail_logic::picture::PictureSize::Small, limit)
+                < weight.against(mail_logic::picture::PictureSize::Actual, limit)
         );
 
         compose::queue_sized(
@@ -1888,7 +1888,7 @@ mod carrying_a_file {
             &mail_core::pgp::no_passphrase,
             draft,
             compose::Leaves::Now,
-            compose::PictureSize::Small,
+            mail_logic::picture::PictureSize::Small,
             at(30),
         )
         .expect("send queues");

@@ -1,6 +1,6 @@
 use chrono::Local;
-use mail_logic::when::Stamp;
 use mail_domain::*;
+use mail_logic::when::Stamp;
 
 pub(super) fn from_name(message: &Message) -> String {
     message.from.name.clone().unwrap_or_default()

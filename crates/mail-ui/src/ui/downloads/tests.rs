@@ -5,8 +5,8 @@ use super::log::Entry;
 use super::panel::{detail, icon_of};
 use chrono::{DateTime, Utc};
 use ds::prelude::Icon;
-use mail_logic::when::Clock;
 use mail_domain::ThreadId;
+use mail_logic::when::Clock;
 use std::path::PathBuf;
 
 fn at(hours: i64) -> DateTime<Utc> {

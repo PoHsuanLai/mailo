@@ -454,8 +454,9 @@ fn photo(width: u32, height: u32) -> Vec<u8> {
 
 #[test]
 fn a_photo_past_what_the_server_takes_is_warned_of_before_send_and_goes_smaller() {
-    use mail_core::compose::{PictureSize, sized};
+    use mail_core::compose::sized;
     use mail_domain::human_size;
+    use mail_logic::picture::PictureSize;
     use mail_mime::base64_len;
 
     // A server that takes about halfway between the photo as it is and the photo made small,

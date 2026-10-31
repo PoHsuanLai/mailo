@@ -19,7 +19,7 @@ use super::wire::{
 use act::Act;
 use mail_core::SigningStore;
 use mail_core::SqliteStore;
-use mail_core::undo::UndoStack;
+use mail_logic::undo::UndoStack;
 use mail_ui::ui::ask::Ask;
 use std::sync::{Arc, Mutex};
 use token::Token;

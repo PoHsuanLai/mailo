@@ -13,6 +13,7 @@ use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_editor::{FORWARDED, plain_to_flowed};
+use mail_logic::picture::PictureSize;
 use mail_mime::posting;
 use mail_net::Failure;
 use mail_secrets::CredentialError;
@@ -34,7 +35,7 @@ pub use modes::{
     Answer, Quote, Redirected, Saying, draft_again, draft_answer, draft_answer_in, list_post,
     redirect, withdraw_redirect,
 };
-pub use pictures::{PictureSize, sized};
+pub use pictures::sized;
 pub use weight::{
     Fit, Measure, Picture, Said, SendLimit, USUAL_LIMIT, Weight, can_ask_delivery_report, fit,
     send_limit, weigh,

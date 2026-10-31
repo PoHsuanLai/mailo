@@ -14,8 +14,9 @@ use ds::components::overlays::inline_banner::InlineBanner;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_client::compose::{Fit, PictureSize, SendLimit, Weight, fit};
+use mail_client::compose::{Fit, SendLimit, Weight, fit};
 use mail_domain::human_size;
+use mail_logic::picture::PictureSize;
 
 use super::super::menu::{Floating, MenuItem, Right};
 use super::page::{Float, Guard, Page};

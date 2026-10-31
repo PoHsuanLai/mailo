@@ -266,7 +266,7 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     // Pictures sent smaller are the page's choice, and the draft does not keep it.
     let mut page = window.page();
     window.dom.in_runtime(|| {
-        page.write().pictures = mail_core::compose::PictureSize::Small;
+        page.write().pictures = mail_logic::picture::PictureSize::Small;
     });
     let sent = click(
         &mut window.dom,
@@ -330,7 +330,7 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
         entry
             .iter()
             .filter_map(|part| part.resend)
-            .all(|resend| resend.pictures == mail_core::compose::PictureSize::Small),
+            .all(|resend| resend.pictures == mail_logic::picture::PictureSize::Small),
         "the undo forgot the picture size the send was queued with"
     );
     assert_eq!(

@@ -69,7 +69,6 @@ pub mod sync;
 pub mod template;
 pub mod transfer;
 pub mod trust;
-pub mod undo;
 pub mod unsubscribe;
 pub mod vip;
 

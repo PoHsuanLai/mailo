@@ -5,9 +5,10 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_client::Client;
-use mail_client::compose::{Leaves, PictureSize};
+use mail_client::compose::Leaves;
 use mail_client::prelude::SigningStore;
 use mail_domain::*;
+use mail_logic::picture::PictureSize;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};

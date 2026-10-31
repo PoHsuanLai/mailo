@@ -1,5 +1,5 @@
 use super::{Fit, HEADERS, Measure, PART_HEADERS, Picture, Said, SendLimit, Weight, fit};
-use crate::compose::pictures::PictureSize;
+use mail_logic::picture::PictureSize;
 
 const MB: u64 = 1024 * 1024;
 

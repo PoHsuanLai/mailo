@@ -11,7 +11,7 @@ use std::path::Path;
 
 /// The files that may name an hour pattern, and why.
 const ALLOWED: &[(&str, &str)] = &[
-    ("mail-core/src/when.rs", "the one writer: time_of_day"),
+    ("mail-logic/src/when.rs", "the one writer: time_of_day"),
     (
         "mail-reader/src/print.rs",
         "below mail-core, so it cannot call time_of_day; told the clock as a bool, and \

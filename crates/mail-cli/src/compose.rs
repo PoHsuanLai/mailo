@@ -5,8 +5,8 @@
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::compose::{AttachedFile, Composed, Scheduled, SignatureChange};
-use mail_logic::when::Clock;
 use mail_domain::{Address, Draft, Mode, ReceiptRequest, SendState};
+use mail_logic::when::Clock;
 use std::fmt::Write as _;
 
 fn addresses(list: &[Address]) -> String {

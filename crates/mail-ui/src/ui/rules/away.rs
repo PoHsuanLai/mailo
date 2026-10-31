@@ -14,8 +14,8 @@ use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use mail_client::Client;
-use mail_logic::when::Clock;
 use mail_domain::{DateRange, Vacation};
+use mail_logic::when::Clock;
 
 use super::super::common::classed;
 use super::super::data::AccountRow;

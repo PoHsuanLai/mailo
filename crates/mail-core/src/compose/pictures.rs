@@ -18,46 +18,7 @@ use image::imageops::FilterType;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 
 use crate::attachment_image::{Kind, decodable, sniff};
-
-/// How large the pictures a message carries are sent, as Apple Mail names the choice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
-pub enum PictureSize {
-    Small,
-    Medium,
-    Large,
-    /// As they were attached.
-    #[default]
-    Actual,
-}
-
-impl PictureSize {
-    /// Smallest first.
-    pub const ALL: [PictureSize; 4] = [
-        PictureSize::Small,
-        PictureSize::Medium,
-        PictureSize::Large,
-        PictureSize::Actual,
-    ];
-
-    /// The longest side a picture is fitted to, in pixels; `None` for as it was.
-    pub fn longest_side(self) -> Option<u32> {
-        match self {
-            PictureSize::Small => Some(640),
-            PictureSize::Medium => Some(1280),
-            PictureSize::Large => Some(2048),
-            PictureSize::Actual => None,
-        }
-    }
-
-    fn index(self) -> usize {
-        match self {
-            PictureSize::Small => 0,
-            PictureSize::Medium => 1,
-            PictureSize::Large => 2,
-            PictureSize::Actual => 3,
-        }
-    }
-}
+use mail_logic::picture::PictureSize;
 
 /// How well a JPEG made smaller is kept: past the point where the eye tells it from the original
 /// at the size it is shown, short of where the bytes grow for nothing.

@@ -7,9 +7,9 @@ use crate::wire::{
     Snip, Target,
 };
 use chrono::{Local, Utc};
-use mail_logic::when::{Clock, Stamp, stamp};
 use mail_core::{SqliteStore, Store};
 use mail_domain::{Address, Message, ThreadId, ThreadSummary};
+use mail_logic::when::{Clock, Stamp, stamp};
 use mail_ui::ui::ask;
 use std::fmt::Write as _;
 

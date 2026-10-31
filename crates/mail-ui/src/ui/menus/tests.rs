@@ -5,9 +5,9 @@ use crate::ui::fixtures::{acct_account, dispatching, inbox_query, realistic};
 use chrono::TimeZone;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
-use mail_logic::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_logic::when::Clock;
 
 /// Labels, in both directions.
 ///

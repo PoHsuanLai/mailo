@@ -748,7 +748,7 @@ pub struct Shell {
     /// and offers Add Account, is up.
     pub no_account: bool,
     /// What the undo toast and ⌘Z can take back, newest last.
-    pub undo: mail_client::undo::UndoStack,
+    pub undo: mail_logic::undo::UndoStack,
     /// Peek, over the window: an attachment or a link's card. `None` is closed. Belongs to the
     /// open thread: [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
     pub preview: Option<Preview>,
@@ -927,7 +927,7 @@ impl Default for Shell {
             applying_rules: None,
             tidying: None,
             no_account: false,
-            undo: mail_client::undo::UndoStack::default(),
+            undo: mail_logic::undo::UndoStack::default(),
             preview: None,
             raw: None,
             save: None,

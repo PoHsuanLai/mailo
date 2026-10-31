@@ -270,7 +270,12 @@ fn each_rows_menu_sets_it_back_first() {
 fn send_menu_and_more_hold_every_choice_once() {
     let page = page_of("");
     assert_eq!(
-        titles(&send_items(&page, at(0), &Utc, mail_logic::when::Clock::H24)),
+        titles(&send_items(
+            &page,
+            at(0),
+            &Utc,
+            mail_logic::when::Clock::H24
+        )),
         [
             crate::ui::copy::menus::SEND_LATER,
             crate::ui::copy::menus::REMIND_IF_NO_REPLY,

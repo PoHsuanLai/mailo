@@ -5,9 +5,9 @@
 
 use chrono::Local;
 use mail_core::account::{Receive, Setup};
-use mail_logic::when::Stamp;
 use mail_core::{Mail, SqliteStore, Store};
 use mail_domain::*;
+use mail_logic::when::Stamp;
 use porter_core::AccountId;
 use std::fmt::Write as _;
 

@@ -6,8 +6,8 @@
 //! action queued back to drafts. A token mailo did not mint, or one from a mailo that has since stopped (the stack is
 //! in memory), reads as none and is `Gone`.
 
-use mail_core::undo::UndoHandle;
 use mail_domain::DraftId;
+use mail_logic::undo::UndoHandle;
 use std::fmt;
 
 /// What an undo token stands for.

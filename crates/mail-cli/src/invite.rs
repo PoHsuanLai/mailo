@@ -3,8 +3,8 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::error::CoreError;
 use mail_core::invite::{InviteState, repeats_words, say_when};
-use mail_logic::when::Clock;
 use mail_domain::{Address, Attendance, InviteAnswer, MessageId};
+use mail_logic::when::Clock;
 use mail_pim::ical::PartStat;
 use mail_pim::{Invite, Kind, Me, Revision};
 use std::fmt::Write as _;

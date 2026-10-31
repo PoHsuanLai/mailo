@@ -8,6 +8,8 @@
 //! A module that needs the time or the store takes it as a value or a trait the caller hands in
 //! (an instant, a trait over the store); none reads one itself.
 
+pub mod picture;
+pub mod undo;
 pub mod when;
 
 /// The README's examples, compiled and run as doctests.

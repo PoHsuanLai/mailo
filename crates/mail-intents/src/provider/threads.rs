@@ -8,9 +8,9 @@ use super::token::Token;
 use super::{Provider, outcome};
 use crate::wire::{AppRefusal, EntityId, Invocation, Outcome, Target, UndoFault};
 use chrono::Local;
-use mail_core::undo::Undo;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{LabelId, Membership, Op, Snooze, Star, ThreadId};
+use mail_logic::undo::Undo;
 
 /// The conversations an action names, each as the thread it is, or the first that is not one.
 pub(super) fn threads_of(invocation: &Invocation) -> Result<Vec<(EntityId, ThreadId)>, AppRefusal> {
@@ -111,7 +111,7 @@ impl Provider {
     /// back on the stack as an entry of its own.
     pub(super) fn take_back_stack(
         &self,
-        handle: mail_core::undo::UndoHandle,
+        handle: mail_logic::undo::UndoHandle,
     ) -> Result<(), UndoFault> {
         let mut stack = self
             .stack
