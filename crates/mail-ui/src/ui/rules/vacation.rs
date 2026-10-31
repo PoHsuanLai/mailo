@@ -10,7 +10,7 @@ use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::Client;
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 
 use super::super::common::Told;
 use super::super::data::{AccountRow, use_account_rows};

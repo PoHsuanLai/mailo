@@ -5,7 +5,7 @@ use super::log::Entry;
 use super::panel::{detail, icon_of};
 use chrono::{DateTime, Utc};
 use ds::prelude::Icon;
-use mail_core::when::Clock;
+use mail_logic::when::Clock;
 use mail_domain::ThreadId;
 use std::path::PathBuf;
 

@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
-CRATES=(mail-net mail-secrets mail-runtime mail-engine mail-agent mail-core mail-proto mail-store mail-client)
+CRATES=(mail-logic mail-net mail-secrets mail-runtime mail-engine mail-agent mail-core mail-proto mail-store mail-client)
 LIST=scripts/discards.txt
 
 # The extended regex each pattern name stands for.

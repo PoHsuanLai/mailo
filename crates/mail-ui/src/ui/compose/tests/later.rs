@@ -50,7 +50,7 @@ fn the_sends_choice_is_when_the_outbox_lets_it_leave() {
         ),
     ];
     for (name, when, want) in cases {
-        let got = leaves(*when, now, &Utc, mail_core::when::Clock::H24);
+        let got = leaves(*when, now, &Utc, mail_logic::when::Clock::H24);
         match (want, &got) {
             (Ok(want), Ok(got)) => assert_eq!(got, want, "{name}"),
             (Err(words), Err(said)) => assert!(said.starts_with(words), "{name}: {said}"),
@@ -70,7 +70,7 @@ fn a_typed_phrase_is_read_the_way_snooze_reads_it_and_a_past_one_is_refused() {
         ("", Err("Type a time")),
     ];
     for (typed, want) in cases {
-        let got = pick_time(typed, now, &Utc, mail_core::when::Clock::H24);
+        let got = pick_time(typed, now, &Utc, mail_logic::when::Clock::H24);
         match (want, &got) {
             (Ok(want), Ok(got)) => assert_eq!(got, want, "{typed:?}"),
             (Err(words), Err(said)) => assert!(said.starts_with(words), "{typed:?}: {said}"),
@@ -101,19 +101,19 @@ fn pick_a_time_opens_a_field_and_enter_makes_the_typed_time_the_choice() {
 
     // A time that has gone leaves the field open and the choice alone.
     page.float = Float::PickTime("today 8".to_owned());
-    assert!(choose_time(&mut page, now, &Utc, mail_core::when::Clock::H24).is_err());
+    assert!(choose_time(&mut page, now, &Utc, mail_logic::when::Clock::H24).is_err());
     assert_eq!(page.when, When::Now);
     assert_eq!(page.float, Float::PickTime("today 8".to_owned()));
 
     page.float = Float::PickTime("fri 17:00".to_owned());
     assert_eq!(
-        choose_time(&mut page, now, &Utc, mail_core::when::Clock::H24),
+        choose_time(&mut page, now, &Utc, mail_logic::when::Clock::H24),
         Ok(day(25, 17, 0))
     );
     assert_eq!(page.when, When::At(day(25, 17, 0)));
     assert_eq!(page.float, Float::Closed);
     assert_eq!(
-        leaves(page.when, now, &Utc, mail_core::when::Clock::H24),
+        leaves(page.when, now, &Utc, mail_logic::when::Clock::H24),
         Ok(Leaves::At(day(25, 17, 0)))
     );
 }
@@ -382,7 +382,7 @@ async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
         at,
         Utc::now(),
         &chrono::Local,
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     ));
     assert!(
         markup.contains(&leaves),

@@ -3,7 +3,7 @@
 //! Case: One short sentence, sentence case ("Moved to Archive.").
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_client::when::{Clock, Stamp, stamp};
+use mail_logic::when::{Clock, Stamp, stamp};
 use mail_domain::{FollowUp, Membership, Mute, Op, Pin, ReadState, Snooze, Star};
 
 /// A message's one-time code, put on the clipboard by Copy Code.

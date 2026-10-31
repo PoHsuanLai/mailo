@@ -92,6 +92,7 @@ anyview = ["mail-ui/anyview"]
 
 [dependencies]
 porter-core.workspace = true
+mail-logic.workspace = true
 # PDF previews are a mail-core feature, and the desktop's notifications a mail-agent one, that the window and the watch use;
 # they stay on in a build without the desktop extras (`quire-desktop`).
 mail-core = { workspace = true, features = ["pdf", "keyring"] }

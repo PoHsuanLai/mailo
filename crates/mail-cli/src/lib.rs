@@ -5,7 +5,7 @@
 
 use chrono::Local;
 use mail_core::account::{Receive, Setup};
-use mail_core::when::Stamp;
+use mail_logic::when::Stamp;
 use mail_core::{Mail, SqliteStore, Store};
 use mail_domain::*;
 use porter_core::AccountId;
@@ -1531,7 +1531,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     "\n--- {} <{}>  {}\n    {}",
                     message.from.name.as_deref().unwrap_or(""),
                     message.from.email,
-                    mail_core::when::stamp(message.date, &Local, Stamp::Full, clock),
+                    mail_logic::when::stamp(message.date, &Local, Stamp::Full, clock),
                     message.id
                 );
                 // Asked here rather than only in a window, so a request is never answered by
@@ -1989,7 +1989,7 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
         })
 }
 
-fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
+fn render_list(items: &[ThreadSummary], clock: mail_logic::when::Clock) -> String {
     let mut out = String::new();
     for summary in items {
         let _ = writeln!(
@@ -2000,7 +2000,7 @@ fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String
             } else {
                 " "
             },
-            mail_core::when::stamp(summary.last_date, &Local, Stamp::Row, clock),
+            mail_logic::when::stamp(summary.last_date, &Local, Stamp::Row, clock),
             summary.from.shown(),
             summary.subject,
             summary.id

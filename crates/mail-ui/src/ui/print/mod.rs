@@ -60,7 +60,7 @@ pub(in crate::ui) fn build<Tz>(
     job: Job,
     zone: &Tz,
     now: DateTime<Utc>,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Result<Printed, String>
 where
     Tz: TimeZone,
@@ -85,7 +85,7 @@ pub(in crate::ui) fn save_into<Tz>(
     dir: &Path,
     zone: &Tz,
     now: DateTime<Utc>,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Result<std::path::PathBuf, String>
 where
     Tz: TimeZone,
@@ -247,7 +247,7 @@ mod native_print {
         sources: &Sources,
         zone: &Tz,
         now: DateTime<Utc>,
-        clock: mail_client::when::Clock,
+        clock: mail_logic::when::Clock,
     ) -> Result<Printed, String>
     where
         Tz: TimeZone,
@@ -425,7 +425,7 @@ mod native_print {
     pub(in crate::ui) struct Dated<'a, Tz> {
         pub zone: &'a Tz,
         pub now: DateTime<Utc>,
-        pub clock: mail_client::when::Clock,
+        pub clock: mail_logic::when::Clock,
     }
 
     /// Build `job` with the remote images `sources` consents to, make it a PDF on `paper`, hand
@@ -482,7 +482,7 @@ mod native_print {
         sources: &Sources,
         zone: &Tz,
         now: DateTime<Utc>,
-        clock: mail_client::when::Clock,
+        clock: mail_logic::when::Clock,
     ) -> Result<(String, Vec<u8>), String>
     where
         Tz: TimeZone,

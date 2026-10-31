@@ -7,7 +7,7 @@
 set -uo pipefail
 
 # Package names, as `cargo tree -p` takes them: the pure crates are published as `mailo-*`.
-PURE=(mailo-domain mailo-mime mailo-crypto mailo-archive mailo-proto mailo-pim mailo-editor mailo-reader)
+PURE=(mailo-domain mailo-mime mailo-crypto mailo-archive mailo-proto mailo-pim mailo-editor mailo-reader mailo-logic)
 # Nor porter's client, its bus vocabulary or quire's capability probe: the sans-I/O crates know
 # nothing of the desktop's accountd. Nor anyview (the attachment peek and its card): only
 # `mail-ui` draws, behind its `anyview` feature.
@@ -140,7 +140,7 @@ fi
 # the SQL migrations, which are applied
 # files and not edited. Words are matched in lower case; a capitalised one is caught in comments.
 UI_WORDS='sidebar|toast|toolbar|dialog|modal|popover|tooltip|pane|button|sheet'
-LOWER_CRATES=(crates/mail-core crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-net crates/mail-secrets crates/mail-runtime crates/mail-engine crates/mail-agent)
+LOWER_CRATES=(crates/mail-logic crates/mail-core crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-net crates/mail-secrets crates/mail-runtime crates/mail-engine crates/mail-agent)
 if grep -rnE "\\b($UI_WORDS)s?\\b" "${LOWER_CRATES[@]}" --include='*.rs' \
   | grep -vE '^crates/mail-core/src/notify(/|\.rs)|^crates/mail-agent/src/notify(/|\.rs)|openxmlformats-officedocument'; then
   echo "a crate below the window names a part of the window: say what happened and let mail-ui word it"
@@ -211,18 +211,18 @@ library_code() { # <dir>...: "file:line: text" for every non-comment, non-test l
       $0 !~ /^[[:space:]]*\/\// { print f ":" NR ": " $0 }' "$file"
   done < <(find "$@" -name '*.rs' ! -name 'tests.rs' ! -name '*_tests.rs' ! -path '*/tests/*')
 }
-if library_code crates/mail-core/src crates/mail-net/src crates/mail-secrets/src crates/mail-runtime/src crates/mail-engine/src crates/mail-agent/src crates/mail-store/src \
+if library_code crates/mail-logic/src crates/mail-core/src crates/mail-net/src crates/mail-secrets/src crates/mail-runtime/src crates/mail-engine/src crates/mail-agent/src crates/mail-store/src \
   | grep -E 'new_current_thread|new_multi_thread|Runtime::new\(|runtime::Builder::new|OnceLock<.*Runtime>'; then
   echo "a library builds a tokio runtime: make the function async and let mail-edge (crates/mail-edge/src/lib.rs) wait on it"
   fail=1
 fi
-if library_code crates/mail-core/src | grep -E '\bblock_on\('; then
+if library_code crates/mail-logic/src crates/mail-core/src | grep -E '\bblock_on\('; then
   echo "mail-core blocks on a future: make the function async and let mail-edge wait on it"
   fail=1
 fi
 # The desktop notification adapter (`notify/desktop.rs`, behind the `desktop` feature) asks for the
 # program's own path to relaunch it on a click; it is the one place.
-if library_code crates/mail-core/src crates/mail-agent/src | grep -vE '^crates/mail-agent/src/notify/desktop\.rs:' \
+if library_code crates/mail-logic/src crates/mail-core/src crates/mail-agent/src | grep -vE '^crates/mail-agent/src/notify/desktop\.rs:' \
   | grep -E 'env::var(_os)?\(|env::current_exe\('; then
   echo "mail-core or mail-agent reads the environment: take it from mail_core::Environment, which mail-app builds in main"
   fail=1
@@ -231,7 +231,7 @@ fi
 # that the cli words, takes a credential as a parameter or a callback instead of asking a person
 # at a tty, and prints nothing (it logs with `log::`). So no `print!`/`println!`/`eprint!`/
 # `eprintln!`, no `writeln!`/`write!` to stdout or stderr, no `rpassword`, no `/dev/tty`.
-if library_code crates/mail-core/src \
+if library_code crates/mail-logic/src crates/mail-core/src \
   | grep -E '\b(e?print(ln)?!)\(|std::io::(stdout|stderr)\(|io::(stdout|stderr)\(|rpassword|/dev/tty'; then
   echo "mail-core touches the terminal: return a typed outcome and let mail-cli word and print it (log:: is fine)"
   fail=1
@@ -334,7 +334,7 @@ fi
 # platform keyring, the desktop's extras, the Secret Service or the test doubles. `mail-crypto`'s
 # halves and `mail-core`'s `pdf` and `mail-agent`'s `desktop` are the defaults a plain user expects; the rest the
 # program names. (`mail-app` is the program: its own `quire-desktop` default is its build's choice.)
-for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-reader mail-store mail-proto mail-net mail-secrets mail-runtime mail-engine mail-agent mail-core; do
+for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-reader mail-logic mail-store mail-proto mail-net mail-secrets mail-runtime mail-engine mail-agent mail-core; do
   if grep -E '^default[[:space:]]*=' "crates/$crate/Cargo.toml" | grep -E 'quire-desktop|keyring|oo7|testing'; then
     echo "crates/$crate/Cargo.toml: a library's default features must not include quire-desktop, keyring, oo7 or testing"
     fail=1

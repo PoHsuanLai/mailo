@@ -326,7 +326,7 @@ pub(in crate::ui) struct Going {
 pub(in crate::ui) struct Dated<'a, Tz> {
     pub now: DateTime<Utc>,
     pub zone: &'a Tz,
-    pub clock: mail_client::when::Clock,
+    pub clock: mail_logic::when::Clock,
 }
 
 /// Send, if the guards allow it: no recipients shakes the To row, a mentioned attachment with

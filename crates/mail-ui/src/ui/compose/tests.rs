@@ -234,7 +234,7 @@ fn ScheduledRows(shell: Signal<Shell>) -> Element {
                     false,
                     chrono::Utc::now(),
                     &chrono::Local,
-                    mail_core::when::Clock::H24,
+                    mail_logic::when::Clock::H24,
                 ),
                 listed,
                 shell,

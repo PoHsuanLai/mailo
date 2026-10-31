@@ -8,7 +8,7 @@
 
 use crate::error::CoreError;
 use crate::error::Logged;
-use crate::when::Clock;
+use mail_logic::when::Clock;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
 use mail_mime::Parsed;
@@ -291,7 +291,7 @@ pub fn write_file_into(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::when::time_of_day;
+    use mail_logic::when::time_of_day;
     use chrono::FixedOffset;
 
     #[test]

@@ -37,7 +37,7 @@ fn card(calendar: &str, answered: Option<(Attendance, u32)>) -> Card {
         &invite,
         answered.as_ref(),
         &east(),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     )
 }
 
@@ -204,7 +204,7 @@ fn the_organisers_time_is_said_only_when_it_differs() {
         &invite,
         None,
         &berlin,
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     );
     assert_eq!(same.theirs, None);
     assert!(!drawn(same).contains("Their time"));

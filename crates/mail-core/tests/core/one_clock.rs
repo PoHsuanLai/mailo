@@ -2,7 +2,7 @@
 //!
 //! The snooze menu wrote twelve hours while every other surface wrote twenty-four, each with a
 //! chrono pattern of its own. Every time of day a person reads now goes through
-//! `mail_core::when::time_of_day`, which takes the person's clock; this keeps a surface from
+//! `mail_logic::when::time_of_day`, which takes the person's clock; this keeps a surface from
 //! writing an hour by itself again. The files below write or read hours for machines, not for
 //! people, and say so.
 
@@ -102,7 +102,7 @@ fn every_hour_a_person_reads_is_written_by_time_of_day() {
     assert!(
         hits.is_empty(),
         "an hour written by a pattern of its own; write it with \
-         mail_core::when::time_of_day and the person's Clock:\n{}",
+         mail_logic::when::time_of_day and the person's Clock:\n{}",
         hits.join("\n")
     );
 }

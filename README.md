@@ -188,6 +188,7 @@ Published libraries (each package is named `mailo-*`; its folder keeps the `crat
 | `mailo-pim` (`crates/mail-pim`) | vCard, iCalendar invitations and the WebDAV/CardDAV conversation, as text in and values out. |
 | `mailo-editor` (`crates/mail-editor`) | The composer's rich-text document as pure edits: operations, undo, markdown shortcuts, slash commands, and writers to HTML and `format=flowed`. |
 | `mailo-reader` (`crates/mail-reader`) | How a received message becomes what is read: HTML sanitised and lowered to blocks, plain text and quoted tails, the script a message is written in, and the printed page. |
+| `mailo-logic` (`crates/mail-logic`) | The decisions that need no I/O: how an instant is written for a reader, what an undo reverses, how a typed search is read, expanded and ranked. A clock or a store is passed in, never reached for. |
 
 Not published, app-side: `mail-store` (SQLite, FTS5, the outbox), `mail-net` (sockets, TLS, DNS and
 the HTTP clients, with the lookups that are one fetch; no store), `mail-secrets` (the keyrings, the

@@ -8,7 +8,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 
 use super::super::menu::{MenuItem, MenuKey, Right, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};

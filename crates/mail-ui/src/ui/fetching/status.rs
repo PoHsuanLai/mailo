@@ -3,7 +3,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_client::fetch::{Count, Link, Live, Pause, Step};
 use mail_client::sync::fresh::{self, Freshness, Pace};
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 
 /// How much the line should draw the eye.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -103,7 +103,7 @@ where
         format!(
             "Not updated since {}, {}",
             then.format("%b %-d"),
-            mail_client::when::time_of_day(&then, clock)
+            mail_logic::when::time_of_day(&then, clock)
         )
     }
 }
@@ -281,7 +281,7 @@ pub(super) fn clock_at<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz, clock: Clock)
 where
     Tz::Offset: std::fmt::Display,
 {
-    mail_client::when::stamp(at, zone, mail_client::when::Stamp::Clock, clock)
+    mail_logic::when::stamp(at, zone, mail_logic::when::Stamp::Clock, clock)
 }
 
 #[cfg(test)]

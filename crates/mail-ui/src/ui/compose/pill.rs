@@ -70,7 +70,7 @@ pub(in crate::ui) fn face<Tz: TimeZone>(
     state: Option<&SendState>,
     now: DateTime<Utc>,
     zone: &Tz,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Option<Face>
 where
     Tz::Offset: std::fmt::Display,

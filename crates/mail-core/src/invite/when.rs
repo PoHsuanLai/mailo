@@ -7,7 +7,7 @@ use chrono::{NaiveDateTime, Offset, TimeZone, Weekday};
 use mail_pim::ical::{EventZone, RepeatEnd, RepeatUnit, Repeats};
 use mail_pim::{Unplaced, When};
 
-use crate::when::{Clock, time_of_day};
+use mail_logic::when::{Clock, time_of_day};
 
 /// A time said for the reader.
 #[derive(Debug, Clone, PartialEq, Eq)]

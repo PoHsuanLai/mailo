@@ -47,7 +47,7 @@ pub(super) fn rows(
     today: &Today,
     space: SpaceId,
     now: DateTime<Utc>,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Vec<MenuItem> {
     let mut opened: Vec<_> = today
         .all(space)
@@ -79,7 +79,7 @@ pub(super) fn rows(
         .filter_map(|parked| client.stored().draft(parked.item).ok())
         .filter(|draft| !draft.untouched())
         .map(|draft| MenuItem {
-            help: Some(copy::status::draft_touched(&mail_client::when::listed(
+            help: Some(copy::status::draft_touched(&mail_logic::when::listed(
                 draft.updated,
                 now,
                 &chrono::Local,

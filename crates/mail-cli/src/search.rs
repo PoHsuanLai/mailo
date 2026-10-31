@@ -24,7 +24,7 @@ pub(super) fn search(
     limit: u32,
     label: &dyn mail_core::query::Names,
     now: DateTime<Utc>,
-    clock: mail_core::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> String {
     let take = usize::try_from(limit).unwrap_or(usize::MAX);
     // Asked for the top results' worth more, so removing them still leaves `limit` rows.

@@ -43,6 +43,7 @@ porter-discover.workspace = true
 porter-http.workspace = true
 latchkey.workspace = true
 mail-domain.workspace = true
+mail-logic.workspace = true
 mail-store.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
 mail-mime.workspace = true

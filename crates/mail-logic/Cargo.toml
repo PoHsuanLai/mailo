@@ -1,0 +1,23 @@
+[package]
+name = "mailo-logic"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "The decisions of a mail client that need no I/O: how a time is written, what an undo reverses, how a typed search is read and ranked, what a rule or a filter means. No sockets, store, clock or window."
+readme = "README.md"
+keywords = ["email", "search", "mail"]
+categories = ["email", "text-processing"]
+
+# Published as mailo-logic; used in code as `mail_logic`, as the workspace always has.
+[lib]
+name = "mail_logic"
+
+[dependencies]
+chrono.workspace = true
+
+[lints]
+workspace = true

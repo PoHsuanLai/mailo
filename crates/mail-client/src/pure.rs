@@ -241,9 +241,6 @@ pub mod saved_search {
 pub mod wanted {
     pub use mail_core::wanted::{ask_first, claim};
 }
-pub mod when {
-    pub use mail_core::when::{Clock, Stamp, listed, stamp, time_of_day, upcoming};
-}
 pub use mail_core::Storage;
 pub mod junk {
     pub use mail_core::junk::{Filtering, Heed, Order, Policy, Treat};

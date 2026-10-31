@@ -54,7 +54,7 @@ pub(in crate::ui) fn send_items<Tz: TimeZone>(
     page: &Page,
     now: DateTime<Utc>,
     zone: &Tz,
-    clock: mail_client::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Vec<Line<String>>
 where
     Tz::Offset: std::fmt::Display,

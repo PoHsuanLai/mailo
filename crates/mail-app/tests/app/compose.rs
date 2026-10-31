@@ -588,7 +588,7 @@ fn drafts_reports_what_is_waiting() {
         words::drafts(
             &compose::drafts(&store).unwrap(),
             at(30),
-            mail_core::when::Clock::H24
+            mail_logic::when::Clock::H24
         )
         .contains("no drafts")
     );
@@ -597,7 +597,7 @@ fn drafts_reports_what_is_waiting() {
     let listed = words::drafts(
         &compose::drafts(&store).unwrap(),
         at(30),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     );
     assert!(listed.contains("draft"), "{listed}");
     assert!(listed.contains("Re: lunch on friday"), "{listed}");
@@ -608,7 +608,7 @@ fn drafts_reports_what_is_waiting() {
         words::drafts(
             &compose::drafts(&store).unwrap(),
             at(30),
-            mail_core::when::Clock::H24
+            mail_logic::when::Clock::H24
         )
         .contains("queued")
     );

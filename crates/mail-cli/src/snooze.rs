@@ -1,7 +1,7 @@
 //! What `mailo snooze`, `mailo wake` and `mailo pin` say once they have done it.
 
 use chrono::{DateTime, Local, Utc};
-use mail_core::when::{Clock, Stamp, stamp};
+use mail_logic::when::{Clock, Stamp, stamp};
 
 /// `mailo snooze`: the instant the phrase meant, in the user's time and by their `clock`.
 pub fn snoozed(at: DateTime<Utc>, clock: Clock) -> String {

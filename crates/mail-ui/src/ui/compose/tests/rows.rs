@@ -243,7 +243,7 @@ fn each_rows_menu_sets_it_back_first() {
             .map(|item| (item.key.clone(), item.name.clone()))
     };
     assert_eq!(
-        first(sends_items(&page, now, &Utc, mail_core::when::Clock::H24)),
+        first(sends_items(&page, now, &Utc, mail_logic::when::Clock::H24)),
         Some(("now".to_owned(), "Now".to_owned()))
     );
     assert_eq!(
@@ -251,7 +251,7 @@ fn each_rows_menu_sets_it_back_first() {
             Remind::After("three-days"),
             now,
             &Utc,
-            mail_core::when::Clock::H24
+            mail_logic::when::Clock::H24
         )),
         Some((remind::OFF_KEY.to_owned(), "Off".to_owned()))
     );
@@ -270,7 +270,7 @@ fn each_rows_menu_sets_it_back_first() {
 fn send_menu_and_more_hold_every_choice_once() {
     let page = page_of("");
     assert_eq!(
-        titles(&send_items(&page, at(0), &Utc, mail_core::when::Clock::H24)),
+        titles(&send_items(&page, at(0), &Utc, mail_logic::when::Clock::H24)),
         [
             crate::ui::copy::menus::SEND_LATER,
             crate::ui::copy::menus::REMIND_IF_NO_REPLY,

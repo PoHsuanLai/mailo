@@ -25,7 +25,7 @@ use ds::components::menus::pop_up_button::PopUpButton;
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
 use mail_client::Client;
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 use mail_domain::*;
 
 /// How many conversations one page of the search reads.
@@ -153,7 +153,7 @@ fn row(summary: &ThreadSummary, now: DateTime<Utc>, clock: Clock) -> ListItem<St
                 leading: RowLeading::Avatar(face),
                 title: subject,
                 detail: Some(TextLine::from(summary.from.shown().to_owned())),
-                accessory: Accessory::Text(mail_client::when::listed(summary.last_date, now, &chrono::Local, clock)),
+                accessory: Accessory::Text(mail_logic::when::listed(summary.last_date, now, &chrono::Local, clock)),
                 size: RowSize::Settings,
             }
         },

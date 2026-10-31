@@ -25,7 +25,7 @@ pub(in crate::ui) use draw::Invitation;
 use chrono::{DateTime, Utc};
 use mail_client::Client;
 use mail_client::message::{Invited, Looks};
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 use mail_domain::*;
 use std::path::Path;
 

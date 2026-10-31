@@ -51,7 +51,7 @@ pub fn due<Tz: TimeZone>(
     choice: &str,
     from: DateTime<Utc>,
     zone: &Tz,
-    clock: crate::when::Clock,
+    clock: mail_logic::when::Clock,
 ) -> Result<DateTime<Utc>, TimeError>
 where
     Tz::Offset: std::fmt::Display,
@@ -72,7 +72,7 @@ where
     let at = crate::snooze::snooze_until(&phrase, from, zone)?;
     if at <= from {
         return Err(TimeError::Passed {
-            stamp: crate::when::stamp(at, zone, crate::when::Stamp::Full, clock),
+            stamp: mail_logic::when::stamp(at, zone, mail_logic::when::Stamp::Full, clock),
         });
     }
     Ok(at)

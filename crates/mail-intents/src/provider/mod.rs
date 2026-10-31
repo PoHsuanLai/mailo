@@ -38,7 +38,7 @@ pub struct Provider {
     /// [`Opener::window`], or a test's stand-in.
     opener: Opener,
     /// How the person keeps the hours of the day, for the times the answers write.
-    hours: mail_core::when::Clock,
+    hours: mail_logic::when::Clock,
 }
 
 /// What the open actions do with what they show (a conversation for `mail.thread.open`, a new
@@ -129,12 +129,12 @@ impl Provider {
             secrets,
             stack: Mutex::new(UndoStack::default()),
             opener,
-            hours: mail_core::when::Clock::default(),
+            hours: mail_logic::when::Clock::default(),
         }
     }
 
     /// The same, writing the hours of the day by `hours`: twenty-four until it is told.
-    pub fn with_hours(self, hours: mail_core::when::Clock) -> Provider {
+    pub fn with_hours(self, hours: mail_logic::when::Clock) -> Provider {
         Provider { hours, ..self }
     }
 

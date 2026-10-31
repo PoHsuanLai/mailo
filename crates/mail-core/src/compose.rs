@@ -945,11 +945,11 @@ where
     out.push_str(&format!(
         "Date: {}\r\n",
         // Twenty-four hours, as the attribution line in [`quoted`] is written.
-        crate::when::stamp(
+        mail_logic::when::stamp(
             original.date,
             zone,
-            crate::when::Stamp::Quote,
-            crate::when::Clock::H24
+            mail_logic::when::Stamp::Quote,
+            mail_logic::when::Clock::H24
         )
     ));
     out.push_str(&format!("Subject: {}\r\n", original.subject));
@@ -1241,11 +1241,11 @@ where
     // Twenty-four hours, whatever this person's clock: the line is read in someone else's
     // mailbox, by a reader whose clock is not known here, and it is the one reading nobody takes
     // for the other half of the day.
-    let when = crate::when::stamp(
+    let when = mail_logic::when::stamp(
         original.date,
         zone,
-        crate::when::Stamp::Quote,
-        crate::when::Clock::H24,
+        mail_logic::when::Stamp::Quote,
+        mail_logic::when::Clock::H24,
     );
     let mut out = String::new();
     if !body.is_empty() {
@@ -1515,11 +1515,11 @@ fn queue_inner(
         return Err(CoreError::SendTimePassed {
             // The command line's refusal (it names `--at`); the window refuses a time that
             // has passed before it gets here, in its own words.
-            stamp: crate::when::stamp(
+            stamp: mail_logic::when::stamp(
                 at,
                 &Local,
-                crate::when::Stamp::Full,
-                crate::when::Clock::H24,
+                mail_logic::when::Stamp::Full,
+                mail_logic::when::Clock::H24,
             ),
         });
     }

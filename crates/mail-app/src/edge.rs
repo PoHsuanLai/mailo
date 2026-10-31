@@ -3,7 +3,7 @@
 //! the Profile `main` records are `mail-edge`'s, below the command line and the intents provider
 //! as well as `main`.
 
-use mail_core::when::Clock;
+use mail_logic::when::Clock;
 use mail_ui::ui::TRACE;
 
 /// The profile named by a leading `--profile <x>` or `--profile=<x>`, and the arguments without

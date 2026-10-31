@@ -472,7 +472,7 @@ fn the_answer_says_who_it_goes_to() {
         Attendance::Tentative,
         None,
         chrono::Utc::now(),
-        mail_core::when::Clock::H24,
+        mail_logic::when::Clock::H24,
     )
     .unwrap();
     assert_eq!(said, "Queued your answer (tentative) to ada@example.test");

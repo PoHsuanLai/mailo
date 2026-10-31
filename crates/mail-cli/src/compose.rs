@@ -5,7 +5,7 @@
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::compose::{AttachedFile, Composed, Scheduled, SignatureChange};
-use mail_core::when::Clock;
+use mail_logic::when::Clock;
 use mail_domain::{Address, Draft, Mode, ReceiptRequest, SendState};
 use std::fmt::Write as _;
 
@@ -129,7 +129,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let Scheduled { draft, post, at } = held;
-    let when = mail_core::when::upcoming(*at, now, zone, clock);
+    let when = mail_logic::when::upcoming(*at, now, zone, clock);
     let mut out = format!("{} will leave at {when}\n", draft.id);
     let _ = writeln!(out, "  from    {}", post.mail_from);
     let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
@@ -179,7 +179,7 @@ where
             let _ = write!(
                 out,
                 "  (leaves {})",
-                mail_core::when::upcoming(at, now, zone, clock)
+                mail_logic::when::upcoming(at, now, zone, clock)
             );
         }
         out.push('\n');

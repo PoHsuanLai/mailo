@@ -309,7 +309,7 @@ fn performed(
     motion: Option<Motion>,
     shell: Signal<Shell>,
     done: Vec<(ThreadId, Op, Undo)>,
-    hours: mail_client::when::Clock,
+    hours: mail_logic::when::Clock,
     instead: Option<String>,
 ) -> (usize, Option<UndoHandle>) {
     let count = done.len();

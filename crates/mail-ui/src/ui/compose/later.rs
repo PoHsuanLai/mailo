@@ -17,7 +17,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
 use mail_client::undo::{Resend, Undo};
-use mail_client::when::Clock;
+use mail_logic::when::Clock;
 use mail_domain::{ChangeId, Draft, DraftId, Patch, SendState};
 
 use super::super::menu::{MenuKey, menu_key};

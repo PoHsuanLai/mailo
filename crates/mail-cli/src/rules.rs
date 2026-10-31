@@ -360,7 +360,7 @@ pub async fn run_sieve(mail: &Mail, command: &SieveCmd) -> Result<String, CoreEr
 }
 
 /// What a vacation command did, for the terminal.
-pub fn vacation_text(done: &VacationDone, clock: mail_core::when::Clock) -> String {
+pub fn vacation_text(done: &VacationDone, clock: mail_logic::when::Clock) -> String {
     match done {
         VacationDone::Show { address, vacation } => match vacation {
             None => format!("{address}: no vacation reply\n"),
@@ -381,12 +381,12 @@ pub fn vacation_text(done: &VacationDone, clock: mail_core::when::Clock) -> Stri
     }
 }
 
-fn shown(kept: &KeptVacation, clock: mail_core::when::Clock) -> String {
+fn shown(kept: &KeptVacation, clock: mail_logic::when::Clock) -> String {
     let v = &kept.vacation;
     let mut out = format!("{}: vacation reply {:?}", kept.address, v.subject);
     // Shown, not read back: `--from` and `--until` are typed afresh, so this follows the clock.
     let when = |t: DateTime<Utc>| {
-        mail_core::when::stamp(t, &chrono::Local, mail_core::when::Stamp::Full, clock)
+        mail_logic::when::stamp(t, &chrono::Local, mail_logic::when::Stamp::Full, clock)
     };
     match (v.during.from, v.during.to) {
         (None, None) => out.push_str(", from now until turned off"),
