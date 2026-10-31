@@ -2,7 +2,7 @@
 //!
 //! Sync and the fetch state machines, accounts and their discovery, composing, rules, contacts,
 //! search, the switches kept in the config directory, and the rest, over the pure crates
-//! (`mail-domain`, `mail-mime`, `mail-proto`, `mail-pim`) and the I/O ones (`mail-store`,
+//! (`mail-domain`, `mail-mime`, `mail-proto`, `mail-pim`, `mail-logic`) and the I/O ones (`mail-store`,
 //! `mail-runtime`). `mail-app` is its only user, and draws two front-ends over it: the window
 //! (`mail_ui::ui`) and the command line (`mail_cli`).
 //!

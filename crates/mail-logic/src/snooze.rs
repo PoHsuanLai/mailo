@@ -172,8 +172,6 @@ fn next_weekday(from: chrono::NaiveDate, want: Weekday) -> chrono::NaiveDate {
     day
 }
 
-/// When a conversation comes back.
-
 /// A time that was typed and could not be read, or cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TimeError {

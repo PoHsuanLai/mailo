@@ -5,8 +5,8 @@
 //! command line and the agent. What the decisions are made over is `mail-domain`; what acts on
 //! them is `mail-core` and the crates under it.
 //!
-//! A module that needs the time or the store takes it as a value or a trait the caller hands in
-//! (an instant, a trait over the store); none reads one itself.
+//! A module that needs the time takes it as a value the caller hands in; none reads a clock, the
+//! environment or the store itself.
 
 pub mod follow_up;
 pub mod mailbox_filter;

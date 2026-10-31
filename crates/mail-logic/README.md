@@ -1,7 +1,8 @@
 # mailo-logic
 
 The decisions of a mail client that need no I/O: how an instant is written for the person
-reading it, what an undo reverses, how a typed search is read and ranked, what a filter means.
+reading it, how a typed time and a typed search line are read, what an undo reverses, what a
+filter means.
 Values in, values out. Nothing here opens a file or a socket, reads a clock or the environment,
 asks the store, or draws a window; a clock or a store is a value or a trait the caller passes in.
 
